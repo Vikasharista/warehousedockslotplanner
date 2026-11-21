@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Java
+target/
+
+# Node
+node_modules/
+dist/
+
+# Go
+/services/**/bin/
+
+# Local databases and secrets
+*.local.env
+.env
+pgdata/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
