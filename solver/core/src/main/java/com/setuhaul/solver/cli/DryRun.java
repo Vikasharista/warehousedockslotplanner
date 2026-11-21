@@ -41,12 +41,7 @@ public final class DryRun {
                 ? SolverSettings.withOverrides(Path.of(opts.get("config")))
                 : SolverSettings.defaults();
         if (opts.containsKey("seconds")) {
-            long s = Long.parseLong(opts.get("seconds"));
-            settings = new SolverSettings(settings.gateBufferMin(), settings.lowConfidenceMarginMin(),
-                    settings.horizonHours(), settings.inDockOverrunMin(), settings.holdExpiryMin(),
-                    settings.defaultUnloadMin(), settings.priorityWeights(), settings.unforcedMovePenalty(),
-                    settings.forcedMovePenalty(), settings.pinFeasibleConfirmed(), s,
-                    Math.min(settings.unimprovedSeconds(), s), settings.randomSeed());
+            settings = settings.withSolveSeconds(Long.parseLong(opts.get("seconds")));
         }
         String facility = opts.getOrDefault("facility", "FAC-JAI-01");
         OffsetDateTime asOf = OffsetDateTime.parse(opts.get("as-of"));

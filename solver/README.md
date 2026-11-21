@@ -1,22 +1,54 @@
 # solver
 
 The SetuHaul dock-sequencing solver: Java 21, Maven, [Timefold Solver](https://timefold.ai) 2.8.0.
-It reads one facility from Postgres as it stood at an explicit as-of time, chooses a start slot for every truck
-that still needs a dock, and prints the plan. Phase 2 is a dry run: it writes nothing to the database.
+It reads one facility from Postgres as it stood at an explicit as-of time and chooses a start slot for every
+truck that still needs a dock.
 
-## Build, test, run
+| Module | What it is |
+| --- | --- |
+| `core/` | Model, constraints, Postgres loader, KPIs, and the `dock-solver.jar` dry run (prints a plan, writes nothing) |
+| `service/` | Quarkus 3.40 service with Timefold's Quarkus extension: `POST /solve` stores a run in `solver_run` and `solver_plan_item`; it never writes `appointments` |
+
+## Build and test
 
 ```bash
 cd solver
-mvn verify                                   # unit tests; snapshot tests run when SETUHAUL_TEST_JDBC_URL is set
-SETUHAUL_TEST_JDBC_URL='jdbc:postgresql://localhost:55432/setuhaul?user=postgres&password=postgres' mvn verify
-
-java -jar target/dock-solver.jar \
-  --jdbc-url 'jdbc:postgresql://localhost:55432/setuhaul?user=postgres&password=postgres' \
-  --facility FAC-JAI-01 --as-of 2026-08-04T09:55:00+05:30 [--config site.properties] [--seconds 10]
+mvn install                                  # unit tests; database tests skip without SETUHAUL_TEST_JDBC_URL
+SETUHAUL_TEST_JDBC_URL='jdbc:postgresql://localhost:55432/setuhaul?user=postgres&password=postgres' mvn install
 ```
 
 The database must be seeded first: `cd jobs && python -m setuhaul_jobs.seed --apply-schema` (see `jobs/README.md`).
+
+## Run the service
+
+```bash
+SETUHAUL_JDBC_URL=jdbc:postgresql://localhost:55432/setuhaul java -jar service/target/quarkus-app/quarkus-run.jar
+
+curl -X POST localhost:8081/solve -H 'Content-Type: application/json' \
+     -d '{"facilityId":"FAC-JAI-01","asOf":"2026-08-04T09:55:00+05:30","trigger":"ETA_DELAY","solveSeconds":5}'
+curl localhost:8081/runs/RUN-...             # a stored run
+curl localhost:8081/q/health/ready           # readiness, including the database
+```
+
+| Endpoint | Result |
+| --- | --- |
+| `POST /solve` | 201 with the run (score, KPIs, one item per truck) and `Location: /runs/{id}`; 400 with a message for bad input |
+| `GET /runs/{id}` | 200 with the stored run, 404 if unknown |
+| `GET /q/health/live`, `/q/health/ready` | Quarkus health checks |
+
+`trigger` is SCHEDULED, ETA_DELAY, CHECKIN or MANUAL (default). `solveSeconds` (1-60) overrides the configured
+search time. Each stored run keeps the exact settings it was solved with. An infeasible plan is stored with
+status REJECTED. Settings come from `solver-defaults.properties`; point `setuhaul.solver.settings-file` at a
+properties file to override any of them. Every stored run should pass the independent validator:
+`python -m setuhaul_jobs.validate --run-id RUN-...` (see `jobs/README.md`).
+
+## Dry run
+
+```bash
+java -jar core/target/dock-solver.jar \
+  --jdbc-url 'jdbc:postgresql://localhost:55432/setuhaul?user=postgres&password=postgres' \
+  --facility FAC-JAI-01 --as-of 2026-08-04T09:55:00+05:30 [--config site.properties] [--seconds 10]
+```
 
 ## Model
 

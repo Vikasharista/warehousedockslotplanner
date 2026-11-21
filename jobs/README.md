@@ -32,6 +32,19 @@ cd jobs
 
 Each finding is one query in `db/audit/`, with `-- id`, `-- title` and `-- impact` header lines.
 
+## Validate a solver run
+
+```bash
+cd jobs
+../.venv/bin/python -m setuhaul_jobs.validate --run-id RUN-...        # or --latest FAC-JAI-01
+```
+
+Eight checks in `db/validate/`, written without any solver code: no dock overlap (V1), no slot used twice (V2),
+no clash with bookings the run does not replace or with trucks in a dock (V3), dock fits the truck (V4), no start
+before the truck can be there, recomputed from the snapshot with the run's own buffers (V5), slot open and dock
+not blocked, closed or past its last start (V6), times match the slot and unload length (V7), run header matches
+its items (V8). Exit code 0 = valid, 1 = violations, 2 = run not found or database error.
+
 ## Tests
 
 ```bash
@@ -44,4 +57,5 @@ Each test session creates and drops its own database. The suite checks:
 - the four views return the same rows on Postgres as on SQLite;
 - every audit finding reproduces, and `docs/data-audit.md` matches a fresh run;
 - the database rejects a second active booking for a slot or for a shipment, and when ten
-  connections race for one free slot, exactly one wins.
+  connections race for one free slot, exactly one wins;
+- the validator accepts a correct run and catches each kind of broken run with the right check.

@@ -51,6 +51,13 @@ public record SolverSettings(
         return w;
     }
 
+    /** The same settings with a different search time limit; the unimproved limit never exceeds it. */
+    public SolverSettings withSolveSeconds(long seconds) {
+        return new SolverSettings(gateBufferMin, lowConfidenceMarginMin, horizonHours, inDockOverrunMin, holdExpiryMin,
+                defaultUnloadMin, priorityWeights, unforcedMovePenalty, forcedMovePenalty, pinFeasibleConfirmed,
+                seconds, Math.min(unimprovedSeconds, seconds), randomSeed);
+    }
+
     public static SolverSettings defaults() {
         return fromProperties(loadDefaults());
     }

@@ -238,7 +238,7 @@ public final class PostgresLoader {
                 }
                 inDock.add(new LoadResult.Note(t.id, expectedEnd > asOf ? "IN_DOCK" : "IN_DOCK_OVERRUN",
                         "in " + (dock == null ? t.actualDockId : dock.getCode()) + " since " + clock(started, zone)
-                                + ", assumed free at " + clock(end, zone)));
+                                + ", assumed free at " + clock(end, zone), t.actualDockId, null));
                 t.handled = true;
             }
         }
@@ -250,7 +250,8 @@ public final class PostgresLoader {
                 continue;
             }
             flagged.add(new LoadResult.Note(t.id, "WEIGHT_BREACH", t.loadWeightKg + " kg booked on "
-                    + b.dock.getCode() + " (max " + b.dock.getMaxVehicleWeightKg() + " kg); coordinator to decide"));
+                    + b.dock.getCode() + " (max " + b.dock.getMaxVehicleWeightKg() + " kg); coordinator to decide",
+                    b.dock.getId(), b.slotId));
             Slot s = slots.get(b.slotId);
             if (s != null) {
                 long end = s.getStartMin() + Math.max(unloadMin(t.expectedUnloadMin, facilityDefaultUnload), s.lengthMin());
