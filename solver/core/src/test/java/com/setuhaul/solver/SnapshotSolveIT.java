@@ -122,6 +122,43 @@ class SnapshotSolveIT {
     }
 
     @Test
+    void gpsEstimatesAndOverridesCountOnlyAsOfTheirTime() throws Exception {
+        // SHP1013 (from Dausa, on no lane) gets hand-made GPS estimates; the rows are removed afterwards.
+        try (Connection c = DriverManager.getConnection(url)) {
+            c.setAutoCommit(true);
+            try {
+                c.createStatement().execute("""
+                        INSERT INTO gps_eta_estimates (shipment_id, vehicle_id, lane_id, remaining_km, eta_ts,
+                            confidence_code, computed_at)
+                        SELECT 'SHP1013', vehicle_id, 'L1-DEL-JAI', 50, '2026-08-04T12:00:00+05:30'::timestamptz, 'HIGH',
+                               '2026-08-04T09:00:00+05:30'::timestamptz FROM shipments WHERE shipment_id = 'SHP1013'
+                        UNION ALL
+                        SELECT 'SHP1013', vehicle_id, 'L1-DEL-JAI', 10, '2026-08-04T15:00:00+05:30'::timestamptz, 'HIGH',
+                               '2026-08-04T10:30:00+05:30'::timestamptz FROM shipments WHERE shipment_id = 'SHP1013'
+                        """);
+                // 09:00 estimate (12:00) applies; the 10:30 one does not exist yet at 09:55.
+                // The driver's declared 11:00 is earlier, so it cannot win even while the exception is open.
+                assertThat(clock(byId(load(MORNING).plan()).get("SHP1013").getEarliestReadyMin())).isEqualTo("12:30");
+                // By 11:00 the later estimate applies.
+                assertThat(clock(byId(load(OffsetDateTime.parse("2026-08-04T11:00:00+05:30")).plan())
+                        .get("SHP1013").getEarliestReadyMin())).isEqualTo("15:30");
+
+                c.createStatement().execute("""
+                        INSERT INTO eta_updates (eta_update_id, shipment_id, source_type, declared_eta_ts,
+                            confidence_code, created_at)
+                        VALUES ('ETA-IT-OVR', 'SHP1013', 'OPERATIONS_OVERRIDE', '2026-08-04T14:00:00+05:30', 'HIGH',
+                                '2026-08-04T09:50:00+05:30')
+                        """);
+                // An operations override wins over GPS.
+                assertThat(clock(byId(load(MORNING).plan()).get("SHP1013").getEarliestReadyMin())).isEqualTo("14:30");
+            } finally {
+                c.createStatement().execute("DELETE FROM gps_eta_estimates WHERE shipment_id = 'SHP1013'");
+                c.createStatement().execute("DELETE FROM eta_updates WHERE eta_update_id = 'ETA-IT-OVR'");
+            }
+        }
+    }
+
+    @Test
     void sameInputAndSeedGiveTheSamePlan() throws Exception {
         Map<String, String> first = slots(solve(load(MORNING)));
         Map<String, String> second = slots(solve(load(MORNING)));

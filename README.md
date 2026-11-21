@@ -11,6 +11,7 @@ The design, constraints, objective and decisions are in the plan document:
 
 | Folder | What lives there | Stack |
 | --- | --- | --- |
+| [`data/routes/`](data/routes/) | The three fixed truck routes into the Jaipur DC (OpenRouteService, OpenStreetMap data) | GeoJSON |
 | [`data/setuhaul/`](data/setuhaul/) | The supplied SQLite snapshot (4 August 2026) and its schema, dictionary and guide. Read-only seed | SQLite |
 | [`db/`](db/) | Postgres schema ported from the snapshot, and the data-audit queries | Postgres 16 |
 | [`jobs/`](jobs/) | Python jobs: seed loader, data audit, later the GPS simulator and ETA service | Python 3.12+ |
