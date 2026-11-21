@@ -82,3 +82,39 @@ def test_views_return_the_same_rows_as_sqlite(seeded, snapshot, view):
 
     assert pg_cols == lite_cols
     assert pg_rows == lite_rows
+
+
+def test_seed_starts_the_shared_clock_at_the_snapshot(database_url, snapshot):
+    with psycopg.connect(database_url) as conn:
+        seed.load(conn, snapshot)
+        seed.set_clock(conn, seed.SNAPSHOT_MOMENT)
+        (now,) = conn.execute("SELECT setuhaul_now() - '2026-08-04T09:55:00+05:30'::timestamptz").fetchone()
+        assert 0 <= now.total_seconds() < 60
+        seed.set_clock(conn, None)
+        (real,) = conn.execute("SELECT abs(extract(epoch FROM setuhaul_now() - now()))").fetchone()
+        assert real == 0
+
+
+def test_init_seeds_an_empty_database_once(admin_url, capsys):
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    admin = admin_url
+    name = "setuhaul_init_test"
+    with psycopg.connect(admin, autocommit=True) as conn:
+        conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        conn.execute(f"CREATE DATABASE {name}")
+    url = make_conninfo(**{**conninfo_to_dict(admin_url), "dbname": name})
+    try:
+        assert seed.main(["--database-url", url, "--init"]) == 0
+        with psycopg.connect(url) as conn:
+            conn.execute("UPDATE app_clock SET sim_anchor = sim_anchor + interval '1 hour'")
+            conn.commit()
+        assert seed.main(["--database-url", url, "--init"]) == 0
+        assert "already seeded" in capsys.readouterr().out
+        with psycopg.connect(url) as conn:
+            (moved,) = conn.execute(
+                "SELECT setuhaul_now() >= '2026-08-04T10:55:00+05:30'::timestamptz").fetchone()
+            assert moved, "a second --init keeps the clock"
+    finally:
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")

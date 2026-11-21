@@ -110,6 +110,20 @@ public final class PostgresLoader {
               AND a.booked_at <= ?
             """;
 
+    /**
+     * Live driver holds on another slot by a shipment that still has its current booking (is_current = 0 until
+     * the driver confirms). The held slot is not free for anyone else while the hold lasts.
+     */
+    private static final String SIDE_HOLDS_SQL = """
+            SELECT a.shipment_id, a.slot_id, a.booked_at, sl.dock_id, sl.slot_start_ts, sl.slot_end_ts
+            FROM appointments a
+            JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+            WHERE sl.facility_id = ?
+              AND a.is_current = 0
+              AND a.appointment_status = 'PENDING_CONFIRMATION'
+              AND a.booked_at <= ?
+            """;
+
     private final SolverSettings settings;
 
     public PostgresLoader(SolverSettings settings) {
@@ -129,7 +143,9 @@ public final class PostgresLoader {
     }
 
     private LoadResult read(Connection conn, String facilityId, OffsetDateTime asOfTs) throws SQLException {
-        long asOf = minutes(asOfTs);
+        // Inputs are read up to the exact as-of time; planning starts at the next whole minute, so nothing is
+        // planned before the moment the plan is made.
+        long asOf = Math.floorDiv(asOfTs.toEpochSecond() + 59, 60);
         long horizonEnd = asOf + settings.horizonHours() * 60L;
 
         // Facility, hours and rules.
@@ -248,6 +264,22 @@ public final class PostgresLoader {
             }
         }
 
+        try (PreparedStatement ps = conn.prepareStatement(SIDE_HOLDS_SQL)) {
+            ps.setString(1, facilityId);
+            ps.setObject(2, asOfTs);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    long bookedAt = minutes(rs.getObject("booked_at", OffsetDateTime.class));
+                    Dock dock = docks.get(rs.getString("dock_id"));
+                    if (dock != null && bookedAt + settings.holdExpiryMin() > asOf) {
+                        blocks.add(new DockBlock(dock, minutes(rs.getObject("slot_start_ts", OffsetDateTime.class)),
+                                minutes(rs.getObject("slot_end_ts", OffsetDateTime.class)), DockBlock.Kind.HELD_SLOT,
+                                rs.getString("shipment_id")));
+                    }
+                }
+            }
+        }
+
         Map<String, List<long[]>> departuresByVehicle = vehicleDepartures(conn);
 
         List<LoadResult.Note> flagged = new ArrayList<>();
@@ -339,6 +371,7 @@ public final class PostgresLoader {
                     needed, reefer, t.loadWeightKg, unload, ready);
             a.setVehicleId(t.vehicleId);
             a.setEtaConfidence(checkedIn ? "AT_GATE" : confidence);
+            a.setEtaMin(checkedIn ? null : eta);
             a.setNextPickupMin(nextPickup(departuresByVehicle, t));
 
             List<Slot> candidates = futureSlots.stream()

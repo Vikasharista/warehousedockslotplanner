@@ -22,6 +22,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -29,7 +31,7 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-/** Loads a facility as of a time, solves it, and stores the run. Never writes appointments. */
+/** Loads a facility as of a time, solves it, and stores the run. Writing bookings is {@link CommitService}'s job. */
 @ApplicationScoped
 public class PlanService {
 
@@ -62,11 +64,19 @@ public class PlanService {
     }
 
     public Api.Run solve(Api.SolveRequest req) throws Exception {
+        return solve(req, null);
+    }
+
+    /** Solves and stores a run (status SOLVED or REJECTED). With no asOf the shared clock's now is used. */
+    public Api.Run solve(Api.SolveRequest req, String triggerDetail) throws Exception {
         if (req == null || req.facilityId() == null || req.facilityId().isBlank()) {
             throw new IllegalArgumentException("facilityId is required");
         }
-        if (req.asOf() == null) {
-            throw new IllegalArgumentException("asOf is required, e.g. 2026-08-04T09:55:00+05:30");
+        OffsetDateTime asOf = req.asOf();
+        if (asOf == null) {
+            try (Connection c = dataSource.getConnection()) {
+                asOf = CommitService.now(c);
+            }
         }
         String trigger = req.trigger() == null ? "MANUAL" : req.trigger().toUpperCase(Locale.ROOT);
         if (!TRIGGERS.contains(trigger)) {
@@ -82,7 +92,7 @@ public class PlanService {
 
         LoadResult load;
         try (Connection c = dataSource.getConnection()) {
-            load = new PostgresLoader(effective).load(c, req.facilityId(), req.asOf());
+            load = new PostgresLoader(effective).load(c, req.facilityId(), asOf);
         }
 
         long started = System.nanoTime();
@@ -94,11 +104,13 @@ public class PlanService {
 
         boolean feasible = solved.getScore() != null && solved.getScore().isFeasible();
         Kpis kpis = Kpis.of(solved, load.asOf().getEpochSecond() / 60, load.horizonEnd().getEpochSecond() / 60);
+        // The run records the exact as-of time the inputs were read at: the commit's stale check starts there.
         Api.Run run = new Api.Run("RUN-" + UUID.randomUUID(), req.facilityId(),
-                load.asOf().atZone(load.zone()).toOffsetDateTime(),
+                asOf.atZoneSameInstant(load.zone()).toOffsetDateTime(),
                 load.horizonEnd().atZone(load.zone()).toOffsetDateTime(),
-                trigger, feasible ? "SOLVED" : "REJECTED", feasible, String.valueOf(solved.getScore()), solveMs,
-                kpis, PlanItems.of(load, solved));
+                trigger, triggerDetail, feasible ? "SOLVED" : "REJECTED", feasible, String.valueOf(solved.getScore()),
+                solveMs, kpis, null, feasible ? null : "INFEASIBLE: " + solved.getScore(), List.of(),
+                PlanItems.of(load, solved));
         // The run keeps the exact settings it was solved with, so the validator and audits can recompute its rules.
         runs.save(run, json.writeValueAsString(effective));
         Log.infof("run %s for %s as of %s: %s, %d assigned, %d unassigned, %d ms",

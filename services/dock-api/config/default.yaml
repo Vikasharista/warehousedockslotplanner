@@ -1,0 +1,28 @@
+# dock-api configuration. Environment variables override any key: APP_ + the key in upper case with dots as
+# underscores, e.g. APP_DATABASE_POSTGRES_DSN, APP_SOLVER_URL.
+application:
+  log_level: 0
+
+server:
+  # Local development binds to localhost; the container sets APP_SERVER_ADDRESS=:8082.
+  address: "127.0.0.1:8082"
+
+database:
+  postgres:
+    dsn: "postgres://postgres:postgres@localhost:55432/setuhaul?sslmode=disable"
+    max_idle_connections: 2
+    max_open_connections: 10
+
+solver:
+  url: "http://localhost:8081"
+  timeout: 120s
+
+# Must match the solver's settings (solver-defaults.properties): the options offered to drivers use the same rules.
+planning:
+  gate_buffer_min: 30
+  low_confidence_margin_min: 15
+  horizon_hours: 12
+  hold_expiry_min: 15
+
+holds:
+  sweep_every: 30s

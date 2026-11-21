@@ -19,7 +19,10 @@ from pathlib import Path
 import psycopg
 from psycopg import sql
 
-from .paths import GPS_TABLES_SQL, PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
+from .paths import COMMIT_TABLES_SQL, GPS_TABLES_SQL, PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
+
+# The moment the snapshot describes: the default start of the simulated clock.
+SNAPSHOT_MOMENT = "2026-08-04T09:55:00+05:30"
 
 SNAPSHOT_TIMEZONE = "Asia/Kolkata"
 
@@ -107,11 +110,21 @@ def order_self_referencing(rows: list[dict], key: str, parent: str) -> list[dict
 
 
 def apply_schema(conn: psycopg.Connection, schema_path: Path = SCHEMA_SQL,
-                 plan_tables_path: Path = PLAN_TABLES_SQL, gps_tables_path: Path = GPS_TABLES_SQL) -> None:
-    """Create the snapshot tables, indexes and views, then the solver's plan tables and the GPS tables."""
+                 plan_tables_path: Path = PLAN_TABLES_SQL, gps_tables_path: Path = GPS_TABLES_SQL,
+                 commit_tables_path: Path = COMMIT_TABLES_SQL) -> None:
+    """Create the snapshot tables, indexes and views, then the plan, GPS and commit tables."""
     conn.execute(schema_path.read_text())
     conn.execute(plan_tables_path.read_text())
     conn.execute(gps_tables_path.read_text())
+    conn.execute(commit_tables_path.read_text())
+
+
+def set_clock(conn: psycopg.Connection, start: str | None, rate: float = 1.0) -> None:
+    """Start the shared clock at `start` (ISO time with offset) running at `rate`; None means real time."""
+    with conn.transaction():
+        conn.execute("DELETE FROM app_clock")
+        if start is not None:
+            conn.execute("INSERT INTO app_clock (sim_anchor, rate) VALUES (%s::timestamptz, %s)", (start, rate))
 
 
 def load(conn: psycopg.Connection, snapshot: sqlite3.Connection) -> dict[str, int]:
@@ -178,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--snapshot", type=Path, default=SNAPSHOT_DB)
     parser.add_argument("--apply-schema", action="store_true", help="create the schema first (empty database)")
+    parser.add_argument("--init", action="store_true",
+                        help="first start only: create the schema and load the snapshot if the database has none, "
+                             "otherwise leave the data and the clock as they are")
+    parser.add_argument("--clock-start", default=SNAPSHOT_MOMENT,
+                        help=f"start the shared clock here (default {SNAPSHOT_MOMENT}); 'real' for the real time")
+    parser.add_argument("--clock-rate", type=float, default=1.0, help="simulated minutes per real minute")
     args = parser.parse_args(argv)
     if not args.database_url:
         parser.error("pass --database-url or set DATABASE_URL")
@@ -185,9 +204,19 @@ def main(argv: list[str] | None = None) -> int:
     snapshot = open_snapshot(args.snapshot)
     try:
         with psycopg.connect(args.database_url) as conn:
+            if args.init:
+                if conn.execute("SELECT to_regclass('shipments')").fetchone()[0] is not None:
+                    (n,) = conn.execute("SELECT count(*) FROM shipments").fetchone()
+                    if n > 0:
+                        print(f"already seeded ({n} shipments); data and clock left as they are")
+                        return 0
+                else:
+                    apply_schema(conn)
             if args.apply_schema:
                 apply_schema(conn)
             counts = load(conn, snapshot)
+            if conn.execute("SELECT to_regclass('app_clock')").fetchone()[0] is not None:
+                set_clock(conn, None if args.clock_start == "real" else args.clock_start, args.clock_rate)
     except (SeedError, psycopg.Error) as exc:
         print(f"seed failed: {exc}", file=sys.stderr)
         return 1
@@ -198,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     for table, n in counts.items():
         print(f"{table:<{width}}  {n:>4}")
     print(f"{'total':<{width}}  {sum(counts.values()):>4}  rows, counts verified against the snapshot")
+    print(f"clock: {args.clock_start} x{args.clock_rate}")
     return 0
 
 

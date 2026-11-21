@@ -210,3 +210,15 @@ def test_validator_uses_gps_etas(seeded):
     # Declared ETA 11:10 would allow 13:00; the GPS ETA 13:00 + 30 min does not.
     run = store_run(seeded, "RUN-T-GPS", [("SHP1012", "D4", "13:00", None)])
     assert sorted({v.check_id for v in validate.validate(seeded, run)}) == ["V5"]
+
+
+def test_live_tick_follows_the_shared_clock(seeded):
+    from setuhaul_jobs import seed
+    from setuhaul_jobs.gps import live
+
+    seed.set_clock(seeded, "2026-08-04T09:55:00+05:30")
+    now, pings, estimates = live.tick(seeded, {})
+    assert now.startswith("2026-08-04T04:2") or now.startswith("2026-08-04T09:5")
+    assert pings > 0 and estimates > 0
+    (latest,) = seeded.execute("SELECT max(recorded_at) FROM vehicle_gps_pings").fetchone()
+    assert latest <= dt.datetime(2026, 8, 4, 9, 56, tzinfo=IST)

@@ -31,6 +31,8 @@ public class ShipmentAssignment {
     private int unloadMin;
     private long earliestReadyMin;
     private String etaConfidence;
+    /** The effective ETA this truck is planned on, epoch minutes; null once it is at the gate. */
+    private Long etaMin;
     /** Planned departure of this vehicle's next shipment, in epoch minutes; null when it has none. */
     private Long nextPickupMin;
 
@@ -107,6 +109,8 @@ public class ShipmentAssignment {
     public long getEarliestReadyMin() { return earliestReadyMin; }
     public String getEtaConfidence() { return etaConfidence; }
     public void setEtaConfidence(String etaConfidence) { this.etaConfidence = etaConfidence; }
+    public Long getEtaMin() { return etaMin; }
+    public void setEtaMin(Long etaMin) { this.etaMin = etaMin; }
     public Long getNextPickupMin() { return nextPickupMin; }
     public void setNextPickupMin(Long nextPickupMin) { this.nextPickupMin = nextPickupMin; }
     public Slot getOriginalSlot() { return originalSlot; }

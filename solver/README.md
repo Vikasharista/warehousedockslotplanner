@@ -7,7 +7,7 @@ truck that still needs a dock.
 | Module | What it is |
 | --- | --- |
 | `core/` | Model, constraints, Postgres loader, KPIs, and the `dock-solver.jar` dry run (prints a plan, writes nothing) |
-| `service/` | Quarkus 3.40 service with Timefold's Quarkus extension: `POST /solve` stores a run in `solver_run` and `solver_plan_item`; it never writes `appointments` |
+| `service/` | Quarkus 3.40 service with Timefold's Quarkus extension: stores runs, commits valid runs to `appointments`, and re-plans on its triggers |
 
 ## Build and test
 
@@ -18,6 +18,8 @@ SETUHAUL_TEST_JDBC_URL='jdbc:postgresql://localhost:55432/setuhaul?user=postgres
 ```
 
 The database must be seeded first: `cd jobs && python -m setuhaul_jobs.seed --apply-schema` (see `jobs/README.md`).
+`CommitIT` writes bookings, so it runs on its own copy of that database (`<db>_commit_it`, made from it as a template
+and dropped afterwards); nothing else may be connected to the seeded database while it is copied.
 
 ## Run the service
 
@@ -32,15 +34,55 @@ curl localhost:8081/q/health/ready           # readiness, including the database
 
 | Endpoint | Result |
 | --- | --- |
-| `POST /solve` | 201 with the run (score, KPIs, one item per truck) and `Location: /runs/{id}`; 400 with a message for bad input |
-| `GET /runs/{id}` | 200 with the stored run, 404 if unknown |
+| `POST /solve` | 201 with the run (score, KPIs, one item per truck) and `Location: /runs/{id}`; 400 with a message for bad input. Plans only: books nothing |
+| `POST /replan` | `{"facilityId", "trigger"?, "detail"?}`: plan as of the shared clock and commit. 200 with each attempt's outcome |
+| `POST /runs/{id}/commit` | Commit a stored SOLVED run. 200 with COMMITTED or REJECTED (and why); 404 unknown; 409 not SOLVED |
+| `GET /runs/{id}` | 200 with the stored run (including outcome and validator findings), 404 if unknown |
+| `GET /facilities/{id}/runs` | The facility's newest runs, without items |
+| `GET /facilities/{id}/triggers` | The trigger that would fire now, if any |
+| `GET /clock` | The shared clock's now |
 | `GET /q/health/live`, `/q/health/ready` | Quarkus health checks |
 
-`trigger` is SCHEDULED, ETA_DELAY, CHECKIN or MANUAL (default). `solveSeconds` (1-60) overrides the configured
-search time. Each stored run keeps the exact settings it was solved with. An infeasible plan is stored with
+`trigger` is SCHEDULED, ETA_DELAY, CHECKIN or MANUAL (default). `asOf` defaults to the shared clock's now
+(`setuhaul_now()`). `solveSeconds` (1-60) overrides the configured search time. Each stored run keeps the exact settings it was solved with. An infeasible plan is stored with
 status REJECTED. Settings come from `solver-defaults.properties`; point `setuhaul.solver.settings-file` at a
 properties file to override any of them. Every stored run should pass the independent validator:
 `python -m setuhaul_jobs.validate --run-id RUN-...` (see `jobs/README.md`).
+
+## Commit path (phase 4)
+
+A run is written to `appointments` only after it passes three gates, in order:
+
+1. **Independent validator.** The service runs the SQL checks in `db/validate/` (V1 to V8, the files the Python
+   validator runs, copied onto the classpath at build time). Any finding: the run is REJECTED as `INVALID: V…` with
+   the findings stored on the run, and nothing is written.
+2. **Stale check.** In one transaction, holding the facility's booking lock (`pg_advisory_xact_lock`, shared with
+   dock-api's holds), the run is REJECTED as `STALE: …` when:
+   - any truck's current booking is no longer the one the run was planned on;
+   - a target slot is taken by a booking the commit would not cancel, or is no longer OPEN;
+   - an ETA update, GPS estimate, check-in, dock event or driver exception arrived after the run's as-of time.
+3. **Write.** Bookings the run moves or releases are cancelled (`is_current = 0`, reason on the row). New bookings
+   are inserted as `CONFIRMED` / `SCHEDULING_TOOL`, pointing back at the booking they replace, with
+   `warehouse_confirmation_ref` = the run id. A unique-index violation means another writer took a slot: the
+   transaction rolls back and the run is REJECTED as `SLOT_TAKEN`.
+
+STALE and SLOT_TAKEN ask for a fresh re-plan, which `POST /replan` and the triggers do straight away (two attempts in
+total). Kept bookings, flagged weight breaches, trucks in the dock and driver holds the plan keeps are never written.
+Every committed change appears in the `v_change_log` view.
+
+## Triggers
+
+A timer (`setuhaul.triggers.scan-every`, 60 s) checks each facility in `setuhaul.triggers.facilities` against the
+shared clock and re-plans when one is due, in this order:
+
+| Trigger | When |
+| --- | --- |
+| `CHECKIN` | A truck reached the gate since the last run |
+| `ETA_DELAY` | A booked truck's effective ETA (GPS included) is more than `eta-shift-min` (30) from the ETA its slot was planned on, later or earlier |
+| `SCHEDULED` | No run for `schedule-min` (15) minutes, or no run yet |
+
+Event triggers wait `min-gap-min` (2) after the last run, so a plan that cannot commit does not re-run every scan.
+All of these are configuration (`application.properties`); `SETUHAUL_TRIGGERS=false` turns the timer off.
 
 ## Dry run
 

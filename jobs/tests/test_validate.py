@@ -29,7 +29,7 @@ def slot(conn, dock_code, hhmm):
     return row
 
 
-def store_run(conn, run_id, allocations, assigned=None):
+def store_run(conn, run_id, allocations, assigned=None, settings=None):
     assigned = len(allocations) if assigned is None else assigned
     """allocations: (shipment_id, dock_code, 'HH:MM', end_override_minutes_or_None)."""
     conn.execute(
@@ -38,7 +38,7 @@ def store_run(conn, run_id, allocations, assigned=None):
                pickup_inversions, forced_moves, unforced_moves, dock_utilisation_pct, settings, solve_ms)
            VALUES (%s, 'FAC-JAI-01', %s, %s::timestamptz + interval '12 hours', 'MANUAL', 'SOLVED', 'test', true,
                    %s, %s, 0, 0, 0, 0, 0, 0, 0, 0, %s::jsonb, 0)""",
-        (run_id, AS_OF, AS_OF, assigned, assigned, SETTINGS),
+        (run_id, AS_OF, AS_OF, assigned, assigned, settings or SETTINGS),
     )
     for shipment_id, dock_code, hhmm, minutes in allocations:
         slot_id, dock_id, start, end = slot(conn, dock_code, hhmm)
@@ -119,3 +119,29 @@ def test_missing_buffer_settings_fail_closed(seeded):
     run = store_run(seeded, "RUN-T-NOSETTINGS", VALID)
     seeded.execute("UPDATE solver_run SET settings = '{}'::jsonb WHERE run_id = %s", (run,))
     assert check_ids(seeded, run) == ["V5"]
+
+
+def _side_hold(conn, shipment_id, dock_code, hhmm, booked_at):
+    """A driver hold on another slot, kept beside the shipment's current booking until the driver confirms."""
+    slot_id, *_ = slot(conn, dock_code, hhmm)
+    conn.execute(
+        """INSERT INTO appointments (appointment_id, shipment_id, slot_id, appointment_status, booking_source,
+               is_current, booked_at, updated_at)
+           VALUES ('APT-T-HOLD', %s, %s, 'PENDING_CONFIRMATION', 'DRIVER_CHAT', 0, %s, %s)""",
+        (shipment_id, slot_id, booked_at, booked_at),
+    )
+
+
+def test_a_live_side_hold_occupies_its_slot(seeded):
+    # SHP1018 holds D5 12:00 at 09:50 while keeping its own booking; the run gives that slot to SHP1010.
+    _side_hold(seeded, "SHP1018", "D5", "12:00", "2026-08-04T09:50:00+05:30")
+    run = store_run(seeded, "RUN-T-HOLD", VALID)
+    assert check_ids(seeded, run) == ["V3"]
+
+
+def test_an_expired_side_hold_frees_its_slot(seeded):
+    # Booked 09:30 with a 15-minute expiry: gone by 09:55.
+    _side_hold(seeded, "SHP1018", "D5", "12:00", "2026-08-04T09:30:00+05:30")
+    settings = json.dumps({"gateBufferMin": 30, "lowConfidenceMarginMin": 15, "holdExpiryMin": 15})
+    run = store_run(seeded, "RUN-T-HOLD-OLD", VALID, settings=settings)
+    assert validate.validate(seeded, run) == []

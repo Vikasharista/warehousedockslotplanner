@@ -1,7 +1,13 @@
-# Local Postgres for development and tests.
+# The whole planner on your machine:
+#   docker compose up --build        then open http://localhost:5173
+#   docker compose down -v           to start over from the snapshot (clock back to 4 Aug 2026, 09:55 IST)
+#
+# Only Postgres, for development and tests:
 #   docker compose up -d db
 #   export DATABASE_URL=postgresql://postgres:postgres@localhost:55432/setuhaul
 #   export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/postgres
+#
+# Ports are bound to 127.0.0.1: the stack has no login and is for local use only.
 services:
   db:
     image: postgres:16.6
@@ -11,7 +17,7 @@ services:
       TZ: Asia/Kolkata
       PGTZ: Asia/Kolkata
     ports:
-      - "55432:5432"
+      - "127.0.0.1:55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,5 +25,72 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # Loads the snapshot and starts the shared clock at 09:55 the first time; later starts keep your data.
+  seed:
+    build:
+      context: .
+      dockerfile: jobs/Dockerfile
+    image: setuhaul/jobs:local
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/setuhaul
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Simulated GPS on the three lanes, plus the ETA service, every 30 seconds of real time.
+  gps:
+    image: setuhaul/jobs:local
+    command: ["python", "-m", "setuhaul_jobs.gps.live", "--every-seconds", "30"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/setuhaul
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Plans, commits and re-plans on its triggers (ETA, check-in, every 15 minutes).
+  solver:
+    build:
+      context: .
+      dockerfile: solver/Dockerfile
+    image: setuhaul/solver:local
+    environment:
+      SETUHAUL_JDBC_URL: jdbc:postgresql://db:5432/setuhaul
+      SETUHAUL_DB_USER: postgres
+      SETUHAUL_DB_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The plan view's API and driver holds.
+  api:
+    build:
+      context: services
+      dockerfile: dock-api/Dockerfile
+    image: setuhaul/dock-api:local
+    environment:
+      APP_DATABASE_POSTGRES_DSN: postgres://postgres:postgres@db:5432/setuhaul?sslmode=disable
+      APP_SOLVER_URL: http://solver:8081
+    ports:
+      - "127.0.0.1:8082:8082"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: web
+    image: setuhaul/web:local
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   pgdata:

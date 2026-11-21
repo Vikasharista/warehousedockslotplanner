@@ -59,7 +59,8 @@ public record Kpis(
         }
         long occupied = assigned.stream().mapToLong(a -> clip(a.startMin(), a.endMin(), horizonStartMin, horizonEndMin)).sum()
                 + plan.getBlocks().stream()
-                        .filter(b -> b.kind() == DockBlock.Kind.TRUCK_IN_DOCK || b.kind() == DockBlock.Kind.FLAGGED_BOOKING)
+                        .filter(b -> b.kind() == DockBlock.Kind.TRUCK_IN_DOCK || b.kind() == DockBlock.Kind.FLAGGED_BOOKING
+                                || b.kind() == DockBlock.Kind.HELD_SLOT)
                         .mapToLong(b -> clip(b.startMin(), b.endMin(), horizonStartMin, horizonEndMin)).sum();
         double utilisation = openMinutes == 0 ? 0 : 100.0 * occupied / openMinutes;
 

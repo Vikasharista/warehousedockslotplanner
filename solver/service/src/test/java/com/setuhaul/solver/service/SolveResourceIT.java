@@ -77,6 +77,14 @@ class SolveResourceIT {
     }
 
     @Test
+    void withoutAsOfTheSharedClockIsUsed() {
+        // The seed starts the clock at the snapshot's 09:55; the run is as of the clock's now.
+        given().contentType(ContentType.JSON).body("{\"facilityId\": \"FAC-JAI-01\", \"solveSeconds\": 1}")
+                .when().post("/solve").then().statusCode(201).body("asOf", startsWith("2026-08-04T"));
+        given().when().get("/clock").then().statusCode(200).body("now", startsWith("2026-08-04T"));
+    }
+
+    @Test
     void unknownRunIs404() {
         given().when().get("/runs/RUN-does-not-exist").then().statusCode(404)
                 .body("error", startsWith("no run"));
@@ -84,8 +92,10 @@ class SolveResourceIT {
 
     @Test
     void badRequestsAre400WithAMessage() {
-        given().contentType(ContentType.JSON).body("{\"facilityId\": \"FAC-JAI-01\"}")
-                .when().post("/solve").then().statusCode(400).body("error", startsWith("asOf is required"));
+        given().contentType(ContentType.JSON).body("{\"asOf\": \"2026-08-04T09:55:00+05:30\"}")
+                .when().post("/solve").then().statusCode(400).body("error", equalTo("facilityId is required"));
+        given().contentType(ContentType.JSON).body("{\"trigger\": \"MANUAL\"}")
+                .when().post("/replan").then().statusCode(400).body("error", equalTo("facilityId is required"));
         given().contentType(ContentType.JSON)
                 .body("{\"facilityId\": \"NOPE\", \"asOf\": \"2026-08-04T09:55:00+05:30\"}")
                 .when().post("/solve").then().statusCode(400).body("error", equalTo("unknown facility NOPE"));

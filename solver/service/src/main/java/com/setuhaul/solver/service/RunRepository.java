@@ -1,5 +1,7 @@
 package com.setuhaul.solver.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.setuhaul.solver.report.Kpis;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -21,27 +23,34 @@ import javax.sql.DataSource;
 
 /**
  * Stores and reads solver runs. A run and all its items are written in one transaction, so a reader never sees
- * half a plan. This class never touches appointments.
+ * half a plan. Writing bookings is {@link CommitService}'s job, not this class's.
  */
 @ApplicationScoped
 public class RunRepository {
 
     private static final String INSERT_RUN = """
-            INSERT INTO solver_run (run_id, facility_id, as_of_ts, horizon_end_ts, run_trigger, status, score, feasible,
-                trucks_planned, assigned, unassigned, avg_wait_min, weighted_wait_min, priority_inversions,
-                pickup_inversions, forced_moves, unforced_moves, dock_utilisation_pct, settings, solve_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+            INSERT INTO solver_run (run_id, facility_id, as_of_ts, horizon_end_ts, run_trigger, trigger_detail, status,
+                score, feasible, trucks_planned, assigned, unassigned, avg_wait_min, weighted_wait_min,
+                priority_inversions, pickup_inversions, forced_moves, unforced_moves, dock_utilisation_pct, settings,
+                solve_ms, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
             """;
 
     private static final String INSERT_ITEM = """
             INSERT INTO solver_plan_item (run_id, shipment_id, allocation_status, vehicle_id, priority_code, dock_id,
-                slot_id, planned_start_ts, planned_end_ts, sequence_no, earliest_ready_ts, predicted_wait_min,
-                booking_action, original_slot_id, pinned, reason_code, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                slot_id, planned_start_ts, planned_end_ts, sequence_no, earliest_ready_ts, eta_basis_ts,
+                predicted_wait_min, booking_action, original_slot_id, pinned, reason_code, detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
+
+    private static final TypeReference<List<Api.Violation>> VIOLATIONS = new TypeReference<>() {
+    };
 
     @Inject
     DataSource dataSource;
+
+    @Inject
+    ObjectMapper json;
 
     public void save(Api.Run run, String settingsJson) throws SQLException {
         try (Connection c = dataSource.getConnection()) {
@@ -55,6 +64,7 @@ public class RunRepository {
                     ps.setObject(i++, run.asOf());
                     ps.setObject(i++, run.horizonEnd());
                     ps.setString(i++, run.trigger());
+                    ps.setString(i++, run.triggerDetail());
                     ps.setString(i++, run.status());
                     ps.setString(i++, run.score());
                     ps.setBoolean(i++, run.feasible());
@@ -69,7 +79,8 @@ public class RunRepository {
                     ps.setInt(i++, k.unforcedMoves());
                     ps.setBigDecimal(i++, round(k.dockUtilisationPct()));
                     ps.setString(i++, settingsJson);
-                    ps.setInt(i, (int) Math.min(Integer.MAX_VALUE, run.solveMs()));
+                    ps.setInt(i++, (int) Math.min(Integer.MAX_VALUE, run.solveMs()));
+                    ps.setString(i, run.outcome());
                     ps.executeUpdate();
                 }
                 try (PreparedStatement ps = c.prepareStatement(INSERT_ITEM)) {
@@ -86,6 +97,7 @@ public class RunRepository {
                         ps.setObject(i++, it.plannedEnd());
                         setInt(ps, i++, it.sequenceNo());
                         ps.setObject(i++, it.earliestReady());
+                        ps.setObject(i++, it.etaBasis());
                         setInt(ps, i++, it.predictedWaitMin());
                         ps.setString(i++, it.bookingAction());
                         ps.setString(i++, it.originalSlotId());
@@ -104,6 +116,20 @@ public class RunRepository {
         }
     }
 
+    /** Marks a SOLVED run REJECTED with the reason and any validator findings. */
+    public void reject(String runId, String outcome, List<Api.Violation> violations) throws SQLException {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement ps = c.prepareStatement("""
+                        UPDATE solver_run SET status = 'REJECTED', outcome = ?, violations = ?::jsonb
+                        WHERE run_id = ? AND status = 'SOLVED'
+                        """)) {
+            ps.setString(1, outcome);
+            ps.setString(2, violations == null || violations.isEmpty() ? null : write(violations));
+            ps.setString(3, runId);
+            ps.executeUpdate();
+        }
+    }
+
     public Optional<Api.Run> find(String runId) throws SQLException {
         try (Connection c = dataSource.getConnection()) {
             Api.Run head;
@@ -113,14 +139,7 @@ public class RunRepository {
                     if (!rs.next()) {
                         return Optional.empty();
                     }
-                    Kpis k = new Kpis(rs.getInt("trucks_planned"), rs.getInt("assigned"), rs.getInt("unassigned"),
-                            rs.getDouble("avg_wait_min"), rs.getDouble("weighted_wait_min"),
-                            rs.getInt("priority_inversions"), rs.getInt("pickup_inversions"),
-                            rs.getInt("forced_moves"), rs.getInt("unforced_moves"), rs.getDouble("dock_utilisation_pct"));
-                    head = new Api.Run(rs.getString("run_id"), rs.getString("facility_id"),
-                            rs.getObject("as_of_ts", OffsetDateTime.class), rs.getObject("horizon_end_ts", OffsetDateTime.class),
-                            rs.getString("run_trigger"), rs.getString("status"), rs.getBoolean("feasible"),
-                            rs.getString("score"), rs.getInt("solve_ms"), k, List.of());
+                    head = head(rs);
                 }
             }
             List<Api.Item> items = new ArrayList<>();
@@ -131,19 +150,71 @@ public class RunRepository {
                 ps.setString(1, runId);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        items.add(new Api.Item(rs.getString("shipment_id"), rs.getString("allocation_status"),
-                                rs.getString("vehicle_id"), rs.getString("priority_code"), rs.getString("dock_id"),
-                                rs.getString("slot_id"), rs.getObject("planned_start_ts", OffsetDateTime.class),
-                                rs.getObject("planned_end_ts", OffsetDateTime.class), (Integer) rs.getObject("sequence_no"),
-                                rs.getObject("earliest_ready_ts", OffsetDateTime.class),
-                                (Integer) rs.getObject("predicted_wait_min"), rs.getString("booking_action"),
-                                rs.getString("original_slot_id"), rs.getBoolean("pinned"), rs.getString("reason_code"),
-                                rs.getString("detail")));
+                        items.add(item(rs));
                     }
                 }
             }
-            return Optional.of(new Api.Run(head.runId(), head.facilityId(), head.asOf(), head.horizonEnd(),
-                    head.trigger(), head.status(), head.feasible(), head.score(), head.solveMs(), head.kpis(), items));
+            return Optional.of(head.withItems(items));
+        }
+    }
+
+    /** The facility's newest runs, without items, newest first. */
+    public List<Api.Run> recent(String facilityId, int limit) throws SQLException {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement ps = c.prepareStatement("""
+                        SELECT * FROM solver_run WHERE facility_id = ? ORDER BY created_at DESC, run_id LIMIT ?
+                        """)) {
+            ps.setString(1, facilityId);
+            ps.setInt(2, limit);
+            List<Api.Run> out = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(head(rs));
+                }
+            }
+            return out;
+        }
+    }
+
+    private Api.Run head(ResultSet rs) throws SQLException {
+        Kpis k = new Kpis(rs.getInt("trucks_planned"), rs.getInt("assigned"), rs.getInt("unassigned"),
+                rs.getDouble("avg_wait_min"), rs.getDouble("weighted_wait_min"),
+                rs.getInt("priority_inversions"), rs.getInt("pickup_inversions"),
+                rs.getInt("forced_moves"), rs.getInt("unforced_moves"), rs.getDouble("dock_utilisation_pct"));
+        String violations = rs.getString("violations");
+        return new Api.Run(rs.getString("run_id"), rs.getString("facility_id"),
+                rs.getObject("as_of_ts", OffsetDateTime.class), rs.getObject("horizon_end_ts", OffsetDateTime.class),
+                rs.getString("run_trigger"), rs.getString("trigger_detail"), rs.getString("status"),
+                rs.getBoolean("feasible"), rs.getString("score"), rs.getInt("solve_ms"), k,
+                rs.getObject("committed_at", OffsetDateTime.class), rs.getString("outcome"),
+                violations == null ? List.of() : read(violations), List.of());
+    }
+
+    private static Api.Item item(ResultSet rs) throws SQLException {
+        return new Api.Item(rs.getString("shipment_id"), rs.getString("allocation_status"),
+                rs.getString("vehicle_id"), rs.getString("priority_code"), rs.getString("dock_id"),
+                rs.getString("slot_id"), rs.getObject("planned_start_ts", OffsetDateTime.class),
+                rs.getObject("planned_end_ts", OffsetDateTime.class), (Integer) rs.getObject("sequence_no"),
+                rs.getObject("earliest_ready_ts", OffsetDateTime.class),
+                rs.getObject("eta_basis_ts", OffsetDateTime.class),
+                (Integer) rs.getObject("predicted_wait_min"), rs.getString("booking_action"),
+                rs.getString("original_slot_id"), rs.getBoolean("pinned"), rs.getString("reason_code"),
+                rs.getString("detail"), rs.getString("appointment_id"));
+    }
+
+    private String write(List<Api.Violation> violations) {
+        try {
+            return json.writeValueAsString(violations);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private List<Api.Violation> read(String violations) {
+        try {
+            return json.readValue(violations, VIOLATIONS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
         }
     }
 
