@@ -1,0 +1,9 @@
+"""Repository paths shared by the jobs."""
+
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SNAPSHOT_DB = REPO_ROOT / "data" / "setuhaul" / "setuhaul_freight_operations.db"
+SCHEMA_SQL = REPO_ROOT / "db" / "schema.sql"
+AUDIT_DIR = REPO_ROOT / "db" / "audit"
+AUDIT_REPORT = REPO_ROOT / "docs" / "data-audit.md"
