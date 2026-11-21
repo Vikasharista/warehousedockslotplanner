@@ -16,7 +16,7 @@ The design, constraints, objective and decisions are in the plan document:
 | [`db/`](db/) | Postgres schema ported from the snapshot, and the data-audit queries | Postgres 16 |
 | [`jobs/`](jobs/) | Python jobs: seed loader, data audit, later the GPS simulator and ETA service | Python 3.12+ |
 | [`solver/`](solver/) | The dock-sequencing solver | Java 17+, Maven, Timefold Solver |
-| [`services/`](services/) | Go services: capacity layer (hold, confirm, release), plan API | Go |
+| [`services/`](services/) | Go services: capacity layer (hold, confirm, release), plan API. [`services/core-lib/`](services/core-lib/) is their shared library (config, DB, errors, auth, GraphQL glue) | Go 1.24+ |
 | [`web/`](web/) | Planning frontend: plan view, input data, capacity inputs | React, TypeScript, Vite |
 | [`docs/`](docs/) | Data audit report and other project documents | Markdown |
 
