@@ -5,3 +5,6 @@
   Timestamps become `timestamptz`, facility hours `time`, rule dates `date`; 0/1 flags stay integers so
   queries written against the snapshot run unchanged.
 - `audit/` — the data-audit queries A1 to A10. `jobs/` runs them and writes `docs/data-audit.md`.
+- `plan_tables.sql` — the solver's own tables, `solver_run` and `solver_plan_item`, applied after `schema.sql`.
+  A run and its items are written together; reseeding the snapshot empties them.
+- `validate/` — the independent plan checks V1 to V8 that `jobs/` runs against a stored run.

@@ -19,7 +19,7 @@ from pathlib import Path
 import psycopg
 from psycopg import sql
 
-from .paths import SCHEMA_SQL, SNAPSHOT_DB
+from .paths import PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
 
 SNAPSHOT_TIMEZONE = "Asia/Kolkata"
 
@@ -106,9 +106,11 @@ def order_self_referencing(rows: list[dict], key: str, parent: str) -> list[dict
     return ordered
 
 
-def apply_schema(conn: psycopg.Connection, schema_path: Path = SCHEMA_SQL) -> None:
-    """Create tables, indexes and views in an empty database."""
+def apply_schema(conn: psycopg.Connection, schema_path: Path = SCHEMA_SQL,
+                 plan_tables_path: Path = PLAN_TABLES_SQL) -> None:
+    """Create the snapshot tables, indexes and views, then the solver's plan tables, in an empty database."""
     conn.execute(schema_path.read_text())
+    conn.execute(plan_tables_path.read_text())
 
 
 def load(conn: psycopg.Connection, snapshot: sqlite3.Connection) -> dict[str, int]:
@@ -121,8 +123,9 @@ def load(conn: psycopg.Connection, snapshot: sqlite3.Connection) -> dict[str, in
     with conn.transaction():
         cur = conn.cursor()
         cur.execute(sql.SQL("SET LOCAL TIME ZONE {}").format(sql.Literal(SNAPSHOT_TIMEZONE)))
+        # CASCADE also empties tables that point at the snapshot (solver runs): they describe data being replaced.
         cur.execute(
-            sql.SQL("TRUNCATE {} RESTART IDENTITY").format(
+            sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(
                 sql.SQL(", ").join(sql.Identifier(t) for t in TABLE_ORDER)
             )
         )

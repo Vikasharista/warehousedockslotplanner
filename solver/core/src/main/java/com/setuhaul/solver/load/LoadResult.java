@@ -23,7 +23,14 @@ public record LoadResult(
         List<Note> outsideHorizon,
         Map<String, String> emptyCandidateReasons) {
 
-    /** A truck left out of the solve, with the reason and a human-readable detail. */
-    public record Note(String shipmentId, String reason, String detail) {
+    /**
+     * A truck left out of the solve, with the reason and a human-readable detail. {@code dockId} and {@code slotId}
+     * say where it is (a truck in a dock) or where it is booked (a flagged booking); either may be null.
+     */
+    public record Note(String shipmentId, String reason, String detail, String dockId, String slotId) {
+
+        public Note(String shipmentId, String reason, String detail) {
+            this(shipmentId, reason, detail, null, null);
+        }
     }
 }
