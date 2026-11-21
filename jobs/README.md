@@ -32,6 +32,33 @@ cd jobs
 
 Each finding is one query in `db/audit/`, with `-- id`, `-- title` and `-- impact` header lines.
 
+## Simulated GPS (test server)
+
+Three fixed lanes into the Jaipur DC: Delhi (286 km), Ahmedabad (651 km) and Mumbai (1,120 km). Their truck
+routes were fetched once from OpenRouteService (driving-hgv) into `data/routes/` and load with no network
+(`python -m setuhaul_jobs.gps.lanes`; `--fetch` re-fetches and needs the API key). Seeding reloads them.
+The snapshot has no coordinates for the DC, so central Jaipur (26.9124 N, 75.7873 E) stands in for it.
+Route data (c) openrouteservice.org | OpenStreetMap contributors.
+
+```bash
+cd jobs
+../.venv/bin/python -m setuhaul_jobs.gps.simulate --until 2026-08-04T09:55:00+05:30 \
+    [--scenario SHP1016=feed_loss:08:00] [--scenario SHP1009=early:30]
+../.venv/bin/python -m setuhaul_jobs.gps.eta --as-of 2026-08-04T09:55:00+05:30
+```
+
+- The simulator moves every truck that is on a lane and not yet at the gate (towns within 15 km of a route join
+  it part-way: Manesar, Bhiwadi and Neemrana on Delhi; Udaipur and Ajmer on Ahmedabad), one ping per minute.
+  The default scenario reproduces the snapshot: the truck arrives at its latest declared ETA, and a declared
+  BREAKDOWN becomes a stop. Others: `on_time`, `early:<min>`, `slowdown:<min>`, `breakdown`, `feed_loss:<HH:MM>`.
+  Runs are repeatable and replace their own earlier pings.
+- The ETA service replays a 5-minute cycle: ETA = ping time + remaining route km / the lane's average speed
+  (`route_lanes.avg_speed_kmph`, 45 by default). It writes an estimate only when the ETA moves 10 minutes or
+  more; confidence is HIGH up to 10 minutes of ping age and MEDIUM up to 30; after 30 minutes without a ping the
+  last ETA is kept once more, marked stale with LOW confidence.
+- `v_effective_eta` (and the solver, as of its run time): an OPERATIONS_OVERRIDE wins; otherwise the GPS ETA,
+  or the driver's later ETA while their exception is open; otherwise the latest ETA update.
+
 ## Validate a solver run
 
 ```bash
@@ -58,4 +85,6 @@ Each test session creates and drops its own database. The suite checks:
 - every audit finding reproduces, and `docs/data-audit.md` matches a fresh run;
 - the database rejects a second active booking for a slot or for a shipment, and when ten
   connections race for one free slot, exactly one wins;
-- the validator accepts a correct run and catches each kind of broken run with the right check.
+- the validator accepts a correct run and catches each kind of broken run with the right check;
+- GPS: route geometry, lane matching, repeatable simulation and its scenarios, the ETA service's write,
+  confidence and stale rules, the v_effective_eta rules, and a V5 violation caused by a later GPS ETA.

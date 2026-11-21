@@ -19,7 +19,7 @@ from pathlib import Path
 import psycopg
 from psycopg import sql
 
-from .paths import PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
+from .paths import GPS_TABLES_SQL, PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
 
 SNAPSHOT_TIMEZONE = "Asia/Kolkata"
 
@@ -107,10 +107,11 @@ def order_self_referencing(rows: list[dict], key: str, parent: str) -> list[dict
 
 
 def apply_schema(conn: psycopg.Connection, schema_path: Path = SCHEMA_SQL,
-                 plan_tables_path: Path = PLAN_TABLES_SQL) -> None:
-    """Create the snapshot tables, indexes and views, then the solver's plan tables, in an empty database."""
+                 plan_tables_path: Path = PLAN_TABLES_SQL, gps_tables_path: Path = GPS_TABLES_SQL) -> None:
+    """Create the snapshot tables, indexes and views, then the solver's plan tables and the GPS tables."""
     conn.execute(schema_path.read_text())
     conn.execute(plan_tables_path.read_text())
+    conn.execute(gps_tables_path.read_text())
 
 
 def load(conn: psycopg.Connection, snapshot: sqlite3.Connection) -> dict[str, int]:
@@ -151,6 +152,11 @@ def load(conn: psycopg.Connection, snapshot: sqlite3.Connection) -> dict[str, in
                 cur.executemany(stmt, [tuple(r[c] for c in pg_cols) for r in rows])
             counts[table] = len(rows)
         verify_counts(cur, snapshot)
+        # The truncate above also empties route_lanes (it points at facilities); reload the fixed lanes.
+        if cur.execute("SELECT to_regclass('route_lanes')").fetchone()[0] is not None:
+            from .gps.lanes import load_lanes
+
+            load_lanes(conn)
     return counts
 
 

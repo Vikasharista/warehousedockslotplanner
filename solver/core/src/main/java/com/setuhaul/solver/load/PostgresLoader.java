@@ -38,22 +38,62 @@ import java.util.Optional;
  */
 public final class PostgresLoader {
 
+    /**
+     * One row per shipment with its effective ETA as of the given time, by the same rule as the v_effective_eta
+     * view: the newest OPERATIONS_OVERRIDE wins; otherwise a GPS estimate (the later of it and the newest
+     * DRIVER_DECLARED ETA while the driver's exception is open); otherwise the newest ETA update; otherwise
+     * {@code original_eta_ts} (applied in Java). A stale GPS estimate counts as LOW confidence.
+     */
     private static final String SHIPMENTS_SQL = """
+            WITH p AS (SELECT CAST(? AS timestamptz) AS as_of)
             SELECT s.shipment_id, s.vehicle_id, s.priority_code, s.required_dock_type,
                    s.temperature_control_required, s.load_weight_kg, s.expected_unload_min, s.current_status,
                    s.original_eta_ts, s.planned_departure_ts, vt.refrigerated_flag,
-                   eta.declared_eta_ts, eta.confidence_code,
+                   CASE
+                       WHEN ovr.declared_eta_ts IS NOT NULL THEN ovr.declared_eta_ts
+                       WHEN gps.eta_ts IS NOT NULL AND exc.is_open AND drv.declared_eta_ts IS NOT NULL
+                           THEN GREATEST(gps.eta_ts, drv.declared_eta_ts)
+                       WHEN gps.eta_ts IS NOT NULL THEN gps.eta_ts
+                       ELSE upd.declared_eta_ts
+                   END AS declared_eta_ts,
+                   CASE
+                       WHEN ovr.declared_eta_ts IS NOT NULL THEN ovr.confidence_code
+                       WHEN gps.eta_ts IS NOT NULL THEN CASE WHEN gps.stale THEN 'LOW' ELSE gps.confidence_code END
+                       ELSE upd.confidence_code
+                   END AS confidence_code,
                    fc.gate_in_ts, fc.dock_in_ts, fc.unload_start_ts, fc.unload_end_ts, fc.actual_dock_id
             FROM shipments s
+            CROSS JOIN p
             JOIN vehicles v ON v.vehicle_id = s.vehicle_id
             JOIN vehicle_types vt ON vt.vehicle_type_code = v.vehicle_type_code
             LEFT JOIN LATERAL (
-                SELECT e.declared_eta_ts, e.confidence_code
-                FROM eta_updates e
-                WHERE e.shipment_id = s.shipment_id AND e.created_at <= ?
-                ORDER BY e.created_at DESC, e.eta_update_id DESC
+                SELECT e.declared_eta_ts, e.confidence_code FROM eta_updates e
+                WHERE e.shipment_id = s.shipment_id AND e.created_at <= p.as_of
+                ORDER BY e.created_at DESC, e.eta_update_id DESC LIMIT 1
+            ) upd ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT e.declared_eta_ts, e.confidence_code FROM eta_updates e
+                WHERE e.shipment_id = s.shipment_id AND e.created_at <= p.as_of
+                  AND e.source_type = 'OPERATIONS_OVERRIDE'
+                ORDER BY e.created_at DESC, e.eta_update_id DESC LIMIT 1
+            ) ovr ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT e.declared_eta_ts FROM eta_updates e
+                WHERE e.shipment_id = s.shipment_id AND e.created_at <= p.as_of
+                  AND e.source_type = 'DRIVER_DECLARED'
+                ORDER BY e.created_at DESC, e.eta_update_id DESC LIMIT 1
+            ) drv ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT g.eta_ts, g.confidence_code, g.stale FROM gps_eta_estimates g
+                WHERE g.shipment_id = s.shipment_id AND g.computed_at <= p.as_of
+                ORDER BY g.computed_at DESC, g.estimate_id DESC LIMIT 1
+            ) gps ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT TRUE AS is_open FROM driver_exceptions x
+                WHERE x.shipment_id = s.shipment_id AND x.reported_at <= p.as_of
+                  AND x.exception_status NOT IN ('RESOLVED', 'CANCELLED', 'DUPLICATE')
                 LIMIT 1
-            ) eta ON TRUE
+            ) exc ON TRUE
             LEFT JOIN facility_checkins fc ON fc.shipment_id = s.shipment_id
             WHERE s.destination_facility_id = ?
               AND s.current_status NOT IN ('COMPLETED', 'CANCELLED')
