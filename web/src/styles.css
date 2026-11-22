@@ -133,6 +133,21 @@ button:focus-visible {
   align-items: center;
   gap: 10px;
 }
+.add-trucks {
+  display: inline-flex;
+}
+.add-trucks select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.add-trucks button {
+  border-radius: 0 6px 6px 0;
+}
 .note {
   color: var(--muted);
   font-size: 12px;

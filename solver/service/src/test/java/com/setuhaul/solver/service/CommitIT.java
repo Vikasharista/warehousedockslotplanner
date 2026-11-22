@@ -197,6 +197,44 @@ class CommitIT {
         assertThat(triggers.decide(FACILITY)).get().extracting(TriggerScanner.Decision::trigger).isEqualTo("SCHEDULED");
     }
 
+    @Test
+    @Order(6)
+    void aRequestExistsOnlyFromWhenItWasMadeAndTriggersARePlan() throws Exception {
+        clock("2026-08-04T11:10:00+05:30");
+        exec("""
+                INSERT INTO shipments (shipment_id, order_reference, carrier_id, driver_id, vehicle_id, origin_name,
+                    origin_city, destination_facility_id, customer_name, product_category, load_weight_kg, pallet_count,
+                    required_dock_type, temperature_control_required, priority_code, planned_departure_ts,
+                    actual_departure_ts, original_eta_ts, latest_eta_ts, expected_unload_min, current_status,
+                    created_at, updated_at)
+                SELECT 'SHP-IT-NEW', 'ORD-IT-NEW', carrier_id, driver_id, vehicle_id, origin_name, 'Dausa',
+                    destination_facility_id, customer_name, product_category, load_weight_kg, pallet_count,
+                    required_dock_type, temperature_control_required, 'CRITICAL', '2026-08-04T12:30:00+05:30',
+                    NULL, '2026-08-04T14:00:00+05:30', NULL, expected_unload_min, 'ASSIGNED',
+                    '2026-08-04T11:20:00+05:30', '2026-08-04T11:20:00+05:30'
+                FROM shipments WHERE shipment_id = 'SHP1018'
+                """);
+        // Before 11:20 the request does not exist: not planned, no NEW_REQUEST trigger.
+        String before = solve("2026-08-04T11:10:00+05:30");
+        assertThat(query("SELECT 1 FROM solver_plan_item WHERE run_id = ? AND shipment_id = 'SHP-IT-NEW'", before)).isEmpty();
+        assertThat(triggers.decide(FACILITY).map(TriggerScanner.Decision::trigger)).isNotEqualTo(java.util.Optional.of("NEW_REQUEST"));
+        assertThat(replan("SCHEDULED")).containsEntry("status", "COMMITTED");
+
+        // Once the clock passes 11:20 it fires NEW_REQUEST, and the re-plan books it.
+        clock("2026-08-04T11:23:00+05:30");
+        var due = triggers.decide(FACILITY).orElseThrow();
+        assertThat(due.trigger()).isEqualTo("NEW_REQUEST");
+        assertThat(due.detail()).contains("1 new: SHP-IT-NEW");
+        Map<String, Object> r = replan("NEW_REQUEST");
+        assertThat(r).containsEntry("status", "COMMITTED");
+        assertThat(query("""
+                SELECT a.appointment_status FROM solver_plan_item i JOIN appointments a ON a.appointment_id = i.appointment_id
+                WHERE i.run_id = ? AND i.shipment_id = 'SHP-IT-NEW'
+                """, r.get("finalRunId"))).extracting(m -> m.get("appointment_status")).containsExactly("CONFIRMED");
+        assertThat(query("SELECT run_trigger FROM solver_run WHERE run_id = ?", r.get("finalRunId")))
+                .extracting(m -> m.get("run_trigger")).containsExactly("NEW_REQUEST");
+    }
+
     static final String CHECKIN_SHP1009 = """
             INSERT INTO facility_checkins (checkin_id, shipment_id, facility_id, gate_in_ts, arrival_state, queue_state,
                 updated_at)

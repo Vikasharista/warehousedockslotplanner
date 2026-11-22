@@ -56,6 +56,13 @@ func (f *fakeStore) ReleaseHold(_ context.Context, id string) (*store.Hold, erro
 func (f *fakeStore) FacilityExists(_ context.Context, id string) (bool, error) {
 	return id == "FAC-1", nil
 }
+func (f *fakeStore) QueueTrucks(_ context.Context, id string, n int) (*store.RequestJob, error) {
+	f.limit = n
+	return &store.RequestJob{JobID: 7, FacilityID: id, Trucks: n, Status: "PENDING"}, f.err
+}
+func (f *fakeStore) RequestJob(_ context.Context, id int64) (*store.RequestJob, error) {
+	return &store.RequestJob{JobID: id, Status: "DONE"}, f.err
+}
 func (f *fakeStore) Now(context.Context) (time.Time, error) {
 	return time.Date(2026, 8, 4, 4, 25, 0, 0, time.UTC), f.err
 }
@@ -194,4 +201,24 @@ func TestReplanIsProxiedToTheSolver(t *testing.T) {
 	assert.Equal(t, 502, code)
 	assert.Equal(t, "SOLVER_UNAVAILABLE", body["code"])
 	require.NotContains(t, body["error"], "refused")
+}
+
+func TestTruckRequests(t *testing.T) {
+	st := &fakeStore{}
+	h := Handler(st, &fakeSolver{})
+	code, body, _ := do(t, h, "POST", "/api/facilities/FAC-1/truck-requests", `{"trucks":10}`)
+	assert.Equal(t, 202, code)
+	assert.EqualValues(t, 7, body["jobId"])
+	assert.Equal(t, 10, st.limit)
+	for _, bad := range []string{``, `{"trucks":"x"}`, `{"trucks":5,"extra":1}`} {
+		code, _, _ = do(t, h, "POST", "/api/facilities/FAC-1/truck-requests", bad)
+		assert.Equal(t, 400, code, bad)
+	}
+	code, _, _ = do(t, h, "POST", "/api/facilities/FAC-2/truck-requests", `{"trucks":1}`)
+	assert.Equal(t, 404, code)
+	code, body, _ = do(t, h, "GET", "/api/truck-requests/7", "")
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "DONE", body["status"])
+	code, _, _ = do(t, h, "GET", "/api/truck-requests/x", "")
+	assert.Equal(t, 400, code)
 }

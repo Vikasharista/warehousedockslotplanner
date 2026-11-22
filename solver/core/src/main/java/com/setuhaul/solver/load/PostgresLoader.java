@@ -97,6 +97,8 @@ public final class PostgresLoader {
             LEFT JOIN facility_checkins fc ON fc.shipment_id = s.shipment_id
             WHERE s.destination_facility_id = ?
               AND s.current_status NOT IN ('COMPLETED', 'CANCELLED')
+              -- A truck request exists only from the moment it was made.
+              AND s.created_at <= (SELECT as_of FROM p)
             ORDER BY s.shipment_id
             """;
 

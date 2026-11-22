@@ -285,3 +285,34 @@ func mustOptions(t *testing.T, s *Store, shipment string) []Option {
 	require.NoError(t, err)
 	return o
 }
+
+func TestQueueTrucks(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	for _, n := range []int{0, 51} {
+		_, err := s.QueueTrucks(ctx, "FAC-JAI-01", n)
+		assert.Equal(t, errors.BadRequestErrorCode, code(err), n)
+	}
+	job, err := s.QueueTrucks(ctx, "FAC-JAI-01", 10)
+	require.NoError(t, err)
+	assert.Equal(t, "PENDING", job.Status)
+	assert.Equal(t, 10, job.Trucks)
+	got, err := s.RequestJob(ctx, job.JobID)
+	require.NoError(t, err)
+	assert.Equal(t, job.JobID, got.JobID)
+	_, err = s.RequestJob(ctx, job.JobID+1000)
+	assert.Equal(t, errors.RecordNotFoundErrorCode, code(err))
+}
+
+func TestARequestNotMadeYetHasNoOptions(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	// SHP1018 becomes a request made at 11:00: before then it does not exist for drivers or holds.
+	exec(t, s, "UPDATE shipments SET created_at = '2026-08-04T11:00:00+05:30' WHERE shipment_id = 'SHP1018'")
+	_, err := s.Options(ctx, "SHP1018", 5)
+	assert.Equal(t, errors.RecordNotFoundErrorCode, code(err))
+	setClock(t, s, "2026-08-04T11:01:00+05:30")
+	opts, err := s.Options(ctx, "SHP1018", 5)
+	require.NoError(t, err)
+	assert.NotEmpty(t, opts)
+}

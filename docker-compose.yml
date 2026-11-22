@@ -2,6 +2,11 @@
 #   docker compose up --build        then open http://localhost:5173
 #   docker compose down -v           to start over from the snapshot (clock back to 4 Aug 2026, 09:55 IST)
 #
+# The first start also adds a load test: 70 generated truck requests (50 known at 09:55, 20 arriving between
+# 10:00 and 17:00), with delays, a dock breakdown and coordinator cases. Change or turn it off on that first start:
+#   SETUHAUL_SCENARIO_TRUCKS=0 docker compose up --build        (snapshot only)
+#   SETUHAUL_SCENARIO_TRUCKS=100 SETUHAUL_SCENARIO_TRICKLE=40 docker compose up --build
+#
 # Only Postgres, for development and tests:
 #   docker compose up -d db
 #   export DATABASE_URL=postgresql://postgres:postgres@localhost:55432/setuhaul
@@ -26,19 +31,24 @@ services:
       timeout: 3s
       retries: 30
 
-  # Loads the snapshot and starts the shared clock at 09:55 the first time; later starts keep your data.
+  # Loads the snapshot, starts the shared clock at 09:55 and adds the generated trucks, the first time only;
+  # later starts keep your data.
   seed:
     build:
       context: .
       dockerfile: jobs/Dockerfile
     image: setuhaul/jobs:local
+    command: ["sh", "-c", "python -m setuhaul_jobs.seed --init && python -m setuhaul_jobs.scenario --once"]
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/setuhaul
+      SETUHAUL_SCENARIO_TRUCKS: ${SETUHAUL_SCENARIO_TRUCKS:-70}
+      SETUHAUL_SCENARIO_TRICKLE: ${SETUHAUL_SCENARIO_TRICKLE:-20}
     depends_on:
       db:
         condition: service_healthy
 
-  # Simulated GPS on the three lanes, plus the ETA service, every 30 seconds of real time.
+  # Simulated GPS on the three lanes and the ETA service every 30 seconds of real time; also fulfils the plan
+  # view's "Add requests".
   gps:
     # Same image as seed. It needs its own build section, or Compose tries to pull it from Docker Hub.
     build:
@@ -53,7 +63,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # Plans, commits and re-plans on its triggers (ETA, check-in, every 15 minutes).
+  # Plans, commits and re-plans on its triggers (new request, ETA, check-in, every 15 minutes).
   solver:
     build:
       context: .

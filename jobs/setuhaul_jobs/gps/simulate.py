@@ -127,6 +127,7 @@ LEFT JOIN facility_checkins fc ON fc.shipment_id = s.shipment_id
 WHERE s.destination_facility_id = %s
   AND s.current_status IN ('PLANNED', 'ASSIGNED', 'IN_TRANSIT')
   AND fc.gate_in_ts IS NULL
+  AND s.created_at <= %s
 ORDER BY s.shipment_id
 """
 
@@ -139,7 +140,7 @@ def simulate(conn: psycopg.Connection, until: dt.datetime, scenarios: dict[str, 
     written: dict[str, int] = {}
     with conn.transaction():
         cur = conn.cursor(row_factory=psycopg.rows.dict_row)
-        rows = cur.execute(SHIPMENTS_SQL, (DESTINATION_FACILITY,)).fetchall()
+        rows = cur.execute(SHIPMENTS_SQL, (DESTINATION_FACILITY, until)).fetchall()
         trips = [t for t in (plan_trip(r, scenarios.get(r["shipment_id"], "as_declared"), routes, zone)
                              for r in rows) if t is not None]
         unknown = set(scenarios) - {t.shipment_id for t in trips}

@@ -50,6 +50,7 @@ sh AS (
     LEFT JOIN facility_checkins fc ON fc.shipment_id = s.shipment_id AND fc.gate_in_ts <= now.ts
     LEFT JOIN LATERAL effective_eta(s.shipment_id, now.ts) e ON TRUE
     WHERE s.shipment_id = @shipment AND s.current_status NOT IN ('COMPLETED', 'CANCELLED')
+      AND s.created_at <= now.ts
 ),
 rules AS (
     SELECT max(rule_value) FILTER (WHERE rule_type = 'LAST_NEW_START_TIME') AS last_start,
@@ -115,7 +116,8 @@ func (s *Store) options(db *gorm.DB, shipmentID, slotID string, limit int) ([]Op
 func (s *Store) shipmentOpen(ctx context.Context, shipmentID string) error {
 	var n int64
 	if err := s.GetDB(ctx).Raw(`SELECT count(*) FROM shipments WHERE shipment_id = ?
-		AND current_status NOT IN ('COMPLETED', 'CANCELLED')`, shipmentID).Scan(&n).Error; err != nil {
+		AND current_status NOT IN ('COMPLETED', 'CANCELLED') AND created_at <= setuhaul_now()`, shipmentID).
+		Scan(&n).Error; err != nil {
 		return errors.RepositoryError(err)
 	}
 	if n == 0 {

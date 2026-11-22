@@ -24,6 +24,7 @@ import javax.sql.DataSource;
  * Decides when a facility needs a re-plan (plan of record, "Triggers"), checked on a timer against the shared clock:
  * <ul>
  * <li>CHECKIN: a truck reached the gate since the last run;</li>
+ * <li>NEW_REQUEST: a truck request for the facility was made since the last run;</li>
  * <li>ETA_DELAY: a booked truck's effective ETA (GPS included) moved more than the threshold, later or earlier,
  * from the ETA its slot was planned on;</li>
  * <li>SCHEDULED: no run for the scheduled interval, or no run yet.</li>
@@ -37,6 +38,13 @@ public class TriggerScanner {
             SELECT shipment_id FROM facility_checkins
             WHERE facility_id = ? AND gate_in_ts > ? AND gate_in_ts <= ?
             ORDER BY gate_in_ts, shipment_id
+            """;
+
+    private static final String NEW_REQUESTS = """
+            SELECT shipment_id FROM shipments
+            WHERE destination_facility_id = ? AND created_at > ? AND created_at <= ?
+              AND current_status NOT IN ('COMPLETED', 'CANCELLED')
+            ORDER BY created_at, shipment_id
             """;
 
     private static final String ETA_SHIFTS = """
@@ -96,7 +104,7 @@ public class TriggerScanner {
         }
     }
 
-    /** The trigger due for a facility now, by priority CHECKIN, ETA_DELAY, SCHEDULED. */
+    /** The trigger due for a facility now, by priority CHECKIN, NEW_REQUEST, ETA_DELAY, SCHEDULED. */
     public Optional<Decision> decide(String facilityId) throws SQLException {
         try (Connection c = dataSource.getConnection()) {
             OffsetDateTime now = CommitService.now(c);
@@ -120,6 +128,22 @@ public class TriggerScanner {
                 }
                 if (!arrived.isEmpty()) {
                     return Optional.of(new Decision(facilityId, "CHECKIN", String.join(", ", arrived) + " at the gate"));
+                }
+                List<String> requested = new ArrayList<>();
+                try (PreparedStatement ps = c.prepareStatement(NEW_REQUESTS)) {
+                    ps.setString(1, facilityId);
+                    ps.setObject(2, lastAsOf.get());
+                    ps.setObject(3, now);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            requested.add(rs.getString(1));
+                        }
+                    }
+                }
+                if (!requested.isEmpty()) {
+                    String shown = String.join(", ", requested.subList(0, Math.min(5, requested.size())))
+                            + (requested.size() > 5 ? " and " + (requested.size() - 5) + " more" : "");
+                    return Optional.of(new Decision(facilityId, "NEW_REQUEST", requested.size() + " new: " + shown));
                 }
                 Optional<String> committed = oneString(c, """
                         SELECT run_id FROM solver_run WHERE facility_id = ? AND status = 'COMMITTED'

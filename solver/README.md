@@ -78,6 +78,7 @@ shared clock and re-plans when one is due, in this order:
 | Trigger | When |
 | --- | --- |
 | `CHECKIN` | A truck reached the gate since the last run |
+| `NEW_REQUEST` | A truck request was made since the last run (a shipment's `created_at`; requests do not exist before it) |
 | `ETA_DELAY` | A booked truck's effective ETA (GPS included) is more than `eta-shift-min` (30) from the ETA its slot was planned on, later or earlier |
 | `SCHEDULED` | No run for `schedule-min` (15) minutes, or no run yet |
 

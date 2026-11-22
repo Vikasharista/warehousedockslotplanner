@@ -8,6 +8,7 @@ The plan view: React 18, TypeScript and Vite.
 - **Side panel.** Exceptions (no safe slot, coordinator, in dock), the change log, the runs, and driver holds (find
   a free slot for a truck, hold it, confirm or release).
 - **Re-plan now.** Asks the solver to plan and commit at once.
+- **Add requests.** Adds 5 to 30 generated truck requests; the solver picks them up within a minute.
 
 Times are shown in IST whatever your own time zone is. The page polls every 10 seconds.
 

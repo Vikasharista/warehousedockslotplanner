@@ -18,6 +18,8 @@ export function App() {
   const [holdShipment, setHoldShipment] = useState("");
   const [replanning, setReplanning] = useState(false);
   const [replanNote, setReplanNote] = useState<string | null>(null);
+  const [addCount, setAddCount] = useState(10);
+  const [adding, setAdding] = useState(false);
   // The shared clock: server time at the last poll, advanced locally between polls.
   const [clockBase, setClockBase] = useState<{ server: number; local: number } | null>(null);
   const [tick, setTick] = useState(Date.now());
@@ -63,6 +65,31 @@ export function App() {
     setSelected(null);
   }
 
+  /** Queue generated truck requests; wait (up to a minute) for the jobs' loop to create them. */
+  async function addTrucks() {
+    setAdding(true);
+    setReplanNote(`Requesting ${addCount} trucks…`);
+    try {
+      let job = await api.addTrucks(addCount);
+      for (let i = 0; i < 30 && job.status === "PENDING"; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        job = await api.requestJob(job.jobId);
+      }
+      setReplanNote(
+        job.status === "DONE"
+          ? `Added ${job.result}. The solver re-plans within a minute (NEW_REQUEST).`
+          : job.status === "FAILED"
+            ? `Could not add trucks: ${job.result}`
+            : "Still queued: is the gps service running?",
+      );
+      await refresh();
+    } catch (err) {
+      setReplanNote((err as Error).message);
+    } finally {
+      setAdding(false);
+    }
+  }
+
   async function replan() {
     setReplanning(true);
     setReplanNote(null);
@@ -90,6 +117,18 @@ export function App() {
           <span className="sub">{date(now)} · IST</span>
         </div>
         <div className="actions">
+          <div className="add-trucks" role="group" aria-label="Add truck requests">
+            <select value={addCount} onChange={(e) => setAddCount(Number(e.target.value))} aria-label="How many trucks">
+              {[5, 10, 20, 30].map((n) => (
+                <option key={n} value={n}>
+                  {n} trucks
+                </option>
+              ))}
+            </select>
+            <button onClick={addTrucks} disabled={adding}>
+              {adding ? "Adding…" : "Add requests"}
+            </button>
+          </div>
           <button className="primary" onClick={replan} disabled={replanning}>
             {replanning ? "Re-planning…" : "Re-plan now"}
           </button>

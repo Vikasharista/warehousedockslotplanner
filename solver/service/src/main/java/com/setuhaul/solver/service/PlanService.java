@@ -35,7 +35,7 @@ import javax.sql.DataSource;
 @ApplicationScoped
 public class PlanService {
 
-    static final Set<String> TRIGGERS = Set.of("SCHEDULED", "ETA_DELAY", "CHECKIN", "MANUAL");
+    static final Set<String> TRIGGERS = Set.of("SCHEDULED", "ETA_DELAY", "CHECKIN", "NEW_REQUEST", "MANUAL");
     static final int MAX_SOLVE_SECONDS = 60;
 
     @Inject

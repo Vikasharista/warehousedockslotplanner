@@ -87,6 +87,20 @@ LANGUAGE sql STABLE AS $$
     FROM shipments s WHERE s.shipment_id = p_shipment
 $$;
 
+-- Truck requests asked for from the plan view ("Add trucks"). dock-api queues them; the jobs' live loop generates
+-- the trucks (setuhaul_jobs.scenario) and marks the job done.
+CREATE TABLE truck_request_jobs (
+    job_id BIGSERIAL PRIMARY KEY,
+    facility_id TEXT NOT NULL REFERENCES facilities(facility_id),
+    trucks INTEGER NOT NULL CHECK (trucks BETWEEN 1 AND 50),
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DONE', 'FAILED')),
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    processed_at TIMESTAMPTZ,
+    result TEXT
+);
+
+CREATE INDEX ix_truck_request_jobs_pending ON truck_request_jobs(job_id) WHERE status = 'PENDING';
+
 -- Every booking change a committed run made, newest first: what the agent tells drivers and what the plan view
 -- shows as the change log.
 CREATE VIEW v_change_log AS

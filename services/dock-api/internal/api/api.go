@@ -28,6 +28,8 @@ type Store interface {
 	ConfirmHold(ctx context.Context, id string) (*store.Hold, error)
 	ReleaseHold(ctx context.Context, id string) (*store.Hold, error)
 	FacilityExists(ctx context.Context, facilityID string) (bool, error)
+	QueueTrucks(ctx context.Context, facilityID string, n int) (*store.RequestJob, error)
+	RequestJob(ctx context.Context, id int64) (*store.RequestJob, error)
 	Now(ctx context.Context) (time.Time, error)
 }
 
@@ -59,6 +61,8 @@ func Handler(st Store, sv Solver) http.Handler {
 	mux.HandleFunc("GET /api/facilities/{facility}/changes", h.facility(h.changes))
 	mux.HandleFunc("GET /api/facilities/{facility}/runs", h.facility(h.runs))
 	mux.HandleFunc("POST /api/facilities/{facility}/replan", h.facility(h.replan))
+	mux.HandleFunc("POST /api/facilities/{facility}/truck-requests", h.facility(h.queueTrucks))
+	mux.HandleFunc("GET /api/truck-requests/{job}", h.requestJob)
 	mux.HandleFunc("GET /api/shipments/{shipment}/options", h.options)
 	mux.HandleFunc("POST /api/holds", h.createHold)
 	mux.HandleFunc("GET /api/holds/{hold}", h.hold(h.st.GetHold))
@@ -138,6 +142,34 @@ func (h *handlers) replan(w http.ResponseWriter, r *http.Request, facility strin
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(raw)
+}
+
+// queueTrucks asks for generated truck requests: {"trucks": n}, 1 to 50. 202 with the queued job.
+func (h *handlers) queueTrucks(w http.ResponseWriter, r *http.Request, facility string) {
+	var req struct {
+		Trucks int `json:"trucks"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, errors.NewBadRequestError("body must be {\"trucks\": n}"))
+		return
+	}
+	job, err := h.st.QueueTrucks(r.Context(), facility, req.Trucks)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *handlers) requestJob(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("job"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, errors.NewBadRequestError("invalid job id"))
+		return
+	}
+	respond(w)(h.st.RequestJob(r.Context(), id))
 }
 
 func (h *handlers) options(w http.ResponseWriter, r *http.Request) {

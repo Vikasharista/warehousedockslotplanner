@@ -131,6 +131,13 @@ export interface ReplanResult {
   attempts: { runId: string; status: string; outcome?: string; written: number; cancelled: number }[];
 }
 
+export interface RequestJob {
+  jobId: number;
+  trucks: number;
+  status: "PENDING" | "DONE" | "FAILED";
+  result?: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -170,6 +177,9 @@ export const api = {
   changes: (limit = 60) => call<Change[]>(`${f}/changes?limit=${limit}`),
   runs: (limit = 30) => call<RunSummary[]>(`${f}/runs?limit=${limit}`),
   replan: () => call<ReplanResult>(`${f}/replan`, { method: "POST" }),
+  addTrucks: (trucks: number) =>
+    call<RequestJob>(`${f}/truck-requests`, { method: "POST", body: JSON.stringify({ trucks }) }),
+  requestJob: (id: number) => call<RequestJob>(`/api/truck-requests/${id}`),
   options: (shipmentId: string) => call<SlotOption[]>(`/api/shipments/${encodeURIComponent(shipmentId)}/options?limit=8`),
   hold: (shipmentId: string, slotId: string) =>
     call<Hold>("/api/holds", { method: "POST", body: JSON.stringify({ shipmentId, slotId }) }),

@@ -30,8 +30,10 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
 - Every service reads "now" from `setuhaul_now()` (the `app_clock` row). The seed starts it at the snapshot's
   4 Aug 2026 09:55 IST running at real speed; never use the wall clock for planning decisions.
 - A valid plan is committed automatically (independent validator, stale check, one transaction). Re-plan triggers:
-  gate check-in, effective ETA moved more than 30 minutes from the ETA the slot was planned on, and every
-  15 minutes.
+  gate check-in, a new truck request (NEW_REQUEST), effective ETA moved more than 30 minutes from the ETA the slot
+  was planned on, and every 15 minutes.
+- A shipment exists for planning only from its `created_at`; every reader filters on it, which is how generated
+  requests arrive during the simulated day. Generated load-test data (`SHP-G…`) lives in Postgres only.
 - Driver holds belong to dock-api (Go). A truck with a booking holds a second slot beside it (`is_current = 0`) until
   the driver confirms. Holds and solver commits share one per-facility advisory lock
   (`setuhaul.bookings:<facility>`).

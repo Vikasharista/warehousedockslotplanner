@@ -24,7 +24,9 @@ listens on :8082 inside its container and is published on 127.0.0.1 only. There 
 | `GET /api/facilities/{id}/changes?limit=` | Booking changes committed runs made, newest first |
 | `GET /api/facilities/{id}/runs?limit=` | Newest solver runs |
 | `POST /api/facilities/{id}/replan` | Asks the solver to re-plan and commit now; 502 if it does not answer |
-| `GET /api/shipments/{id}/options?limit=` | Free slots the truck can hold now |
+| `POST /api/facilities/{id}/truck-requests` `{"trucks": n}` | Queues 1 to 50 generated truck requests; 202 with the job. The jobs' live loop creates them |
+| `GET /api/truck-requests/{job}` | The job: PENDING, DONE (with the shipment ids) or FAILED |
+| `GET /api/shipments/{id}/options?limit=` | Free slots the truck can hold now (only once its request has been made) |
 | `POST /api/holds` `{"shipmentId","slotId"}` | 201 with the hold; 409 `SLOT_UNAVAILABLE` or `HOLD_CONFLICT` |
 | `GET /api/holds/{id}` | The hold |
 | `POST /api/holds/{id}/confirm` | The hold becomes the truck's CONFIRMED booking; 409 `HOLD_EXPIRED` after 15 minutes |

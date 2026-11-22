@@ -114,7 +114,7 @@ export function Timeline({ board, now, selected, onSelect }: Props) {
                     onClick={() => onSelect(b)}
                     title={`${b.shipmentId} · ${b.priorityCode} · ${clock(b.slotStart)}–${clock(b.slotEnd)}${hold ? " · driver hold" : ""}${b.flagged ? " · flagged" : ""}`}
                   >
-                    <span className="bar-id">{b.shipmentId.replace("SHP", "")}</span>
+                    <span className="bar-id">{b.shipmentId.replace(/^SHP-?/, "")}</span>
                     {b.predictedWaitMin != null && b.predictedWaitMin > 0 && (
                       <span className="bar-wait">{b.predictedWaitMin}′</span>
                     )}

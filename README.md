@@ -29,6 +29,12 @@ a few minutes; later starts are quick. What starts:
 | `api` | 8082 | dock-api: the plan view's API and driver holds |
 | `web` | 5173 | The plan view |
 
+The first start also loads a **load test**: 70 generated truck requests on top of the snapshot's 20. Fifty are known
+at 09:55 and twenty arrive between 10:00 and 17:00, with delays, a dock breakdown and coordinator cases. That fills
+the docks and leaves some trucks for a coordinator. "Add requests" in the plan view adds more at any time.
+`SETUHAUL_SCENARIO_TRUCKS=0 docker compose up --build` on the first start gives the snapshot alone (see
+`jobs/README.md`).
+
 `docker compose down -v` throws the data away; the next `up` starts again from the snapshot at 09:55. The stack has
 no login: keep it on your own machine.
 

@@ -85,6 +85,32 @@ Each tick writes the simulated pings up to `setuhaul_now()` and recomputes the G
 sees trucks drift as the simulated day goes on. Lane speed for the ETA is a fixed 45 km/h (a decision); the simulated
 trucks move at 35 to 76 km/h, so GPS ETAs can be up to about an hour off the declared ones.
 
+## Load test: extra truck requests
+
+```bash
+../.venv/bin/python -m setuhaul_jobs.scenario --trucks 70 --trickle 20 [--seed 42] [--once] \
+    [--no-disruptions] [--coordinator-cases 4]
+```
+
+Adds generated truck requests (`SHP-G0001` on) for Jaipur DC, in Postgres only.
+- **Arrival.** `--trucks` in all, of which `--trickle` are requested between 10:00 and 17:00 simulated; the rest are
+  known now. A request exists only from its `created_at`, so the trickle reaches the solver during the day and
+  fires the `NEW_REQUEST` trigger.
+- **Mix.** About 15% reefer and 15% heavy loads, the snapshot's priorities and customers, and origins on and off the
+  GPS lanes.
+- **Disruptions.** About a quarter of the trucks report a delay or an early arrival during the day, and D4 breaks
+  down 14:00 to 15:30.
+- **Coordinator cases.** Weight breaches (a 21 t load booked on a 20 t dock) and trucks that arrive after the last
+  start time.
+- **Repeatability.** The same seed gives the same trucks; `--once` skips if generated trucks already exist.
+
+Docker Compose runs it once on the first start. The plan view's "Add requests" queues more
+(`truck_request_jobs`), which the live GPS loop generates within seconds.
+
+On the snapshot plus the default scenario, the first plan places 44 of 62 trucks with 80% dock utilisation, and
+the validator passes. The trucks left out are reefer loads after the 18:00 reefer maintenance, heavy loads beyond
+D6's seven slots, late standard loads, and arrivals after the last start.
+
 ## Validate a solver run
 
 ```bash

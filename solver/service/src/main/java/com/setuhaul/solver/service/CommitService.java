@@ -65,7 +65,7 @@ public class CommitService {
             ORDER BY 1
             """.formatted(ACTIVE);
 
-    /** Inputs that arrived after the run's as-of time (ETA updates, GPS, check-ins, dock events, exceptions). */
+    /** Inputs that arrived after the run's as-of time (ETA updates, GPS, check-ins, dock events, new requests, exceptions). */
     private static final String NEWER_INPUTS = """
             SELECT 'ETA update for ' || e.shipment_id FROM eta_updates e
             JOIN shipments s ON s.shipment_id = e.shipment_id
@@ -83,6 +83,9 @@ public class CommitService {
             SELECT 'dock event on ' || d.dock_code FROM dock_status_events ev
             JOIN docks d ON d.dock_id = ev.dock_id
             WHERE d.facility_id = ? AND ev.created_at > ? AND ev.created_at <= ?
+            UNION ALL
+            SELECT 'new truck request ' || s.shipment_id FROM shipments s
+            WHERE s.destination_facility_id = ? AND s.created_at > ? AND s.created_at <= ?
             UNION ALL
             SELECT 'driver exception for ' || x.shipment_id FROM driver_exceptions x
             JOIN shipments s ON s.shipment_id = x.shipment_id
@@ -208,8 +211,8 @@ public class CommitService {
         }
         try (PreparedStatement ps = c.prepareStatement(NEWER_INPUTS)) {
             int i = 1;
-            // Five sources: facility then the (as_of, now] window; check-ins test three timestamps.
-            for (int source = 0; source < 5; source++) {
+            // Six sources: facility then the (as_of, now] window; check-ins test three timestamps.
+            for (int source = 0; source < 6; source++) {
                 ps.setString(i++, run.facilityId());
                 int windows = source == 2 ? 3 : 1;
                 for (int w = 0; w < windows; w++) {
