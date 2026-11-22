@@ -69,12 +69,16 @@ func serve() error {
 	if err := au.EnsureAccounts(context.Background(), accounts); err != nil {
 		return err
 	}
+	agentKeys, err := api.ParseAgentKeys(v.GetString("agent.keys"))
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go sweep(ctx, st, v.GetDuration("holds.sweep_every"))
 
-	srv := &http.Server{Addr: v.GetString("server.address"), Handler: api.Handler(st, sv, au),
+	srv := &http.Server{Addr: v.GetString("server.address"), Handler: api.Handler(st, sv, au, agentKeys),
 		ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

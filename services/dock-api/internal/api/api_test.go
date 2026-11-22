@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,6 +61,45 @@ func (f *fakeStore) QueueTrucks(_ context.Context, id string, n int) (*store.Req
 	f.limit = n
 	return &store.RequestJob{JobID: 7, FacilityID: id, Trucks: n, Status: "PENDING"}, f.err
 }
+func (f *fakeStore) ShipmentsByPhone(_ context.Context, phone string) ([]store.AgentShipment, error) {
+	return []store.AgentShipment{{ShipmentID: "SHP1", DriverPhone: phone}}, f.err
+}
+func (f *fakeStore) AgentShipment(_ context.Context, id string) (*store.AgentShipment, error) {
+	return &store.AgentShipment{ShipmentID: id, Message: "Your slot is dock D1 at 12:00."}, f.err
+}
+func (f *fakeStore) ChangesAfter(_ context.Context, after int64, limit int) ([]store.FeedChange, int64, error) {
+	f.limit = limit
+	if after >= 2 {
+		return []store.FeedChange{}, 2, f.err
+	}
+	return []store.FeedChange{{ChangeID: 1}, {ChangeID: 2}}, 2, f.err
+}
+func (f *fakeStore) ReportETA(_ context.Context, id string, _ time.Time, source, _, _, _ string) (string, error) {
+	f.lastHold = [2]string{id, source}
+	return "FAC-1", f.err
+}
+func (f *fakeStore) Shipments(context.Context, string) ([]store.ShipmentRow, error) {
+	return []store.ShipmentRow{{ShipmentID: "SHP1"}}, f.err
+}
+func (f *fakeStore) CreateShipment(_ context.Context, _ string, in store.NewShipment) (*store.ShipmentRow, error) {
+	return &store.ShipmentRow{ShipmentID: "SHP-M0001", PriorityCode: in.PriorityCode}, f.err
+}
+func (f *fakeStore) UpdateShipment(context.Context, string, store.ShipmentEdit) (string, error) {
+	return "FAC-1", f.err
+}
+func (f *fakeStore) CheckIn(context.Context, string) error { return f.err }
+func (f *fakeStore) CapacityView(context.Context, string) (*store.Capacity, error) {
+	return &store.Capacity{}, f.err
+}
+func (f *fakeStore) AddDockEvent(context.Context, string, store.NewDockEvent) (string, error) {
+	return "D4", f.err
+}
+func (f *fakeStore) SetSlotStatus(context.Context, string, string, string) (string, string, error) {
+	return "FAC-1", "D1 12:00", f.err
+}
+func (f *fakeStore) SetDockStatus(context.Context, string, string, string) (string, error) {
+	return "D1", f.err
+}
 func (f *fakeStore) RequestJob(_ context.Context, id int64) (*store.RequestJob, error) {
 	return &store.RequestJob{JobID: id, Status: "DONE"}, f.err
 }
@@ -68,13 +108,24 @@ func (f *fakeStore) Now(context.Context) (time.Time, error) {
 }
 
 type fakeSolver struct {
-	err    error
-	called string
+	mu      sync.Mutex
+	err     error
+	called  string
+	details []string
 }
 
-func (f *fakeSolver) Replan(_ context.Context, id, _ string) (json.RawMessage, int, error) {
+func (f *fakeSolver) Replan(_ context.Context, id, detail string) (json.RawMessage, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.called = id
+	f.details = append(f.details, detail)
 	return json.RawMessage(`{"status":"COMMITTED"}`), 200, f.err
+}
+
+func (f *fakeSolver) replans() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.details...)
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string) (int, map[string]interface{}, string) {
@@ -89,7 +140,7 @@ func do(t *testing.T, h http.Handler, method, path, body string) (int, map[strin
 
 func TestReadRoutes(t *testing.T) {
 	st, sv := &fakeStore{}, &fakeSolver{}
-	h := Handler(st, sv, allowAll{})
+	h := Handler(st, sv, allowAll{}, nil)
 	code, body, _ := do(t, h, "GET", "/api/health", "")
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "UP", body["status"])
@@ -114,7 +165,7 @@ func TestReadRoutes(t *testing.T) {
 }
 
 func TestInputValidation(t *testing.T) {
-	h := Handler(&fakeStore{}, &fakeSolver{}, allowAll{})
+	h := Handler(&fakeStore{}, &fakeSolver{}, allowAll{}, nil)
 	cases := map[string][2]string{
 		"unknown facility":  {"GET", "/api/facilities/FAC-2/board"},
 		"bad facility id":   {"GET", "/api/facilities/bad%20id/board"},
@@ -139,7 +190,7 @@ func TestInputValidation(t *testing.T) {
 
 func TestHolds(t *testing.T) {
 	st := &fakeStore{}
-	h := Handler(st, &fakeSolver{}, allowAll{})
+	h := Handler(st, &fakeSolver{}, allowAll{}, nil)
 	code, body, _ := do(t, h, "POST", "/api/holds", `{"shipmentId":"SHP1","slotId":"S1"}`)
 	assert.Equal(t, 201, code)
 	assert.Equal(t, "H1", body["appointmentId"])
@@ -173,7 +224,7 @@ func TestErrorsMapToStatusesAndHideInternals(t *testing.T) {
 		"internal":    {stderrors.New("pq: password authentication failed"), 500},
 	}
 	for name, c := range cases {
-		h := Handler(&fakeStore{err: c.err}, &fakeSolver{}, allowAll{})
+		h := Handler(&fakeStore{err: c.err}, &fakeSolver{}, allowAll{}, nil)
 		code, body, raw := do(t, h, "POST", "/api/holds/H1/confirm", "")
 		assert.Equal(t, c.status, code, name)
 		if c.status == 500 {
@@ -183,20 +234,20 @@ func TestErrorsMapToStatusesAndHideInternals(t *testing.T) {
 			assert.Equal(t, c.err.Error(), body["error"], name)
 		}
 	}
-	h := Handler(&fakeStore{err: stderrors.New("db down")}, &fakeSolver{}, allowAll{})
+	h := Handler(&fakeStore{err: stderrors.New("db down")}, &fakeSolver{}, allowAll{}, nil)
 	code, _, _ := do(t, h, "GET", "/api/clock", "")
 	assert.Equal(t, 500, code)
 }
 
 func TestReplanIsProxiedToTheSolver(t *testing.T) {
 	sv := &fakeSolver{}
-	h := Handler(&fakeStore{}, sv, allowAll{})
+	h := Handler(&fakeStore{}, sv, allowAll{}, nil)
 	code, body, _ := do(t, h, "POST", "/api/facilities/FAC-1/replan", "")
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "COMMITTED", body["status"])
 	assert.Equal(t, "FAC-1", sv.called)
 
-	h = Handler(&fakeStore{}, &fakeSolver{err: stderrors.New("connection refused")}, allowAll{})
+	h = Handler(&fakeStore{}, &fakeSolver{err: stderrors.New("connection refused")}, allowAll{}, nil)
 	code, body, _ = do(t, h, "POST", "/api/facilities/FAC-1/replan", "")
 	assert.Equal(t, 502, code)
 	assert.Equal(t, "SOLVER_UNAVAILABLE", body["code"])
@@ -205,7 +256,7 @@ func TestReplanIsProxiedToTheSolver(t *testing.T) {
 
 func TestTruckRequests(t *testing.T) {
 	st := &fakeStore{}
-	h := Handler(st, &fakeSolver{}, allowAll{})
+	h := Handler(st, &fakeSolver{}, allowAll{}, nil)
 	code, body, _ := do(t, h, "POST", "/api/facilities/FAC-1/truck-requests", `{"trucks":10}`)
 	assert.Equal(t, 202, code)
 	assert.EqualValues(t, 7, body["jobId"])
@@ -246,7 +297,7 @@ func (denyAll) Authenticate(*http.Request) (context.Context, error) {
 }
 
 func TestEveryRouteButHealthAndLoginNeedsASession(t *testing.T) {
-	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{})
+	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{}, nil)
 	for _, path := range []string{"/api/clock", "/api/facilities/FAC-1/board", "/api/shipments/S/options",
 		"/api/holds/H1", "/api/auth/me"} {
 		code, body, _ := do(t, h, "GET", path, "")
@@ -262,7 +313,7 @@ func TestEveryRouteButHealthAndLoginNeedsASession(t *testing.T) {
 }
 
 func TestLoginSetsTheSessionCookie(t *testing.T) {
-	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{})
+	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{}, nil)
 	req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"email":"demo@x.io","password":"right-password"}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -276,7 +327,7 @@ func TestLoginSetsTheSessionCookie(t *testing.T) {
 	code, _, _ = do(t, h, "POST", "/api/auth/login", `{"email":"demo@x.io"`)
 	assert.Equal(t, 400, code)
 
-	code, body, _ = do(t, Handler(&fakeStore{}, &fakeSolver{}, allowAll{}), "GET", "/api/auth/me", "")
+	code, body, _ = do(t, Handler(&fakeStore{}, &fakeSolver{}, allowAll{}, nil), "GET", "/api/auth/me", "")
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "demo@x.io", body["email"])
 }
@@ -287,4 +338,102 @@ func TestClientKeyPrefersTheProxyHeader(t *testing.T) {
 	assert.Equal(t, "10.0.0.9", clientKey(r))
 	r.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.2")
 	assert.Equal(t, "203.0.113.7", clientKey(r))
+}
+
+const agentKey = "agent-key-for-tests-0123456789abcdef"
+
+func TestAgentKeys(t *testing.T) {
+	keys, err := ParseAgentKeys("whatsapp:" + agentKey + ", ,")
+	require.NoError(t, err)
+	_, err = ParseAgentKeys("whatsapp:short")
+	assert.ErrorContains(t, err, "at least 32")
+	_, err = ParseAgentKeys("no-colon")
+	assert.Error(t, err)
+
+	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{}, keys)
+	get := func(path, key string) int {
+		r := httptest.NewRequest("GET", path, nil)
+		if key != "" {
+			r.Header.Set("X-Agent-Key", key)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	assert.Equal(t, 200, get("/api/agent/shipments/SHP1", agentKey))
+	assert.Equal(t, 401, get("/api/agent/shipments/SHP1", "wrong-key-wrong-key-wrong-key-wrong"))
+	assert.Equal(t, 401, get("/api/agent/shipments/SHP1", ""), "no key and no session")
+	assert.Equal(t, 401, get("/api/facilities/FAC-1/board", agentKey), "an agent key opens only /api/agent routes")
+}
+
+func TestAgentRoutes(t *testing.T) {
+	st, sv := &fakeStore{}, &fakeSolver{}
+	h := Handler(st, sv, allowAll{}, nil)
+	code, body, _ := do(t, h, "GET", "/api/agent/shipments/SHP1", "")
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "Your slot is dock D1 at 12:00.", body["message"])
+	code, _, raw := do(t, h, "GET", "/api/agent/drivers/+919000010001/shipments", "")
+	assert.Equal(t, 200, code)
+	assert.Contains(t, raw, "SHP1")
+	code, _, _ = do(t, h, "GET", "/api/agent/shipments/SHP1/options", "")
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "POST", "/api/agent/shipments/SHP1/eta", `{"eta":"2026-08-04T13:00:00+05:30","reason":"TRAFFIC"}`)
+	assert.Equal(t, 200, code)
+	assert.Equal(t, [2]string{"SHP1", "DRIVER_DECLARED"}, st.lastHold, "the agent can only report a driver ETA")
+	code, _, _ = do(t, h, "POST", "/api/agent/shipments/SHP1/eta", `{"eta":"soon"}`)
+	assert.Equal(t, 400, code)
+	code, _, _ = do(t, h, "POST", "/api/agent/holds", `{"shipmentId":"SHP1","slotId":"S1"}`)
+	assert.Equal(t, 201, code)
+	code, _, _ = do(t, h, "POST", "/api/agent/holds/H1/confirm", "")
+	assert.Equal(t, 200, code)
+
+	code, body, _ = do(t, h, "GET", "/api/agent/changes", "")
+	assert.Equal(t, 200, code)
+	assert.EqualValues(t, 2, body["next"])
+	assert.Equal(t, 100, st.limit)
+	code, body, _ = do(t, h, "GET", "/api/agent/changes?after=2", "")
+	assert.Equal(t, 200, code)
+	assert.EqualValues(t, 2, body["next"], "no new changes: the cursor stays")
+	assert.EqualValues(t, 2, body["last"])
+	for _, q := range []string{"?after=-1", "?after=x", "?limit=0"} {
+		code, _, _ = do(t, h, "GET", "/api/agent/changes"+q, "")
+		assert.Equal(t, 400, code, q)
+	}
+}
+
+func TestInputRoutesAndBackgroundReplans(t *testing.T) {
+	st, sv := &fakeStore{}, &fakeSolver{}
+	h := Handler(st, sv, allowAll{}, nil)
+	code, _, _ := do(t, h, "GET", "/api/facilities/FAC-1/shipments", "")
+	assert.Equal(t, 200, code)
+	code, body, _ := do(t, h, "POST", "/api/facilities/FAC-1/shipments",
+		`{"priorityCode":"HIGH","loadWeightKg":9000,"unloadMin":45,"originCity":"Ajmer","eta":"2026-08-04T13:00:00+05:30"}`)
+	assert.Equal(t, 201, code)
+	assert.Equal(t, "SHP-M0001", body["shipmentId"])
+	code, _, _ = do(t, h, "POST", "/api/facilities/FAC-1/shipments", `{"bogus":1}`)
+	assert.Equal(t, 400, code)
+
+	code, _, _ = do(t, h, "PATCH", "/api/shipments/SHP1", `{"priorityCode":"CRITICAL"}`)
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "POST", "/api/shipments/SHP1/eta", `{"eta":"2026-08-04T13:00:00+05:30","source":"operations_override"}`)
+	assert.Equal(t, 200, code)
+	assert.Equal(t, [2]string{"SHP1", "OPERATIONS_OVERRIDE"}, st.lastHold)
+	code, _, _ = do(t, h, "POST", "/api/shipments/SHP1/checkin", "")
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "GET", "/api/facilities/FAC-1/capacity", "")
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "POST", "/api/facilities/FAC-1/dock-events",
+		`{"dockId":"DOCK-JAI-D4","type":"BREAKDOWN","start":"2026-08-04T14:00:00+05:30","reason":"leveller"}`)
+	assert.Equal(t, 201, code)
+	code, _, _ = do(t, h, "PATCH", "/api/facilities/FAC-1/docks/DOCK-JAI-D1", `{"status":"OUT_OF_SERVICE"}`)
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "POST", "/api/slots/SLOT-1/status", `{"status":"BLOCKED","reason":"forklift"}`)
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "PATCH", "/api/facilities/FAC-1/docks/bad%20id", `{"status":"ACTIVE"}`)
+	assert.Equal(t, 400, code)
+
+	// Edits, overrides and capacity changes each ask the solver to re-plan, in the background.
+	assert.Eventually(t, func() bool { return len(sv.replans()) == 5 }, 2*time.Second, 10*time.Millisecond)
+	assert.ElementsMatch(t, []string{"shipment SHP1 edited", "ETA override for SHP1", "dock event: D4 breakdown",
+		"dock D1 set to OUT_OF_SERVICE", "slot D1 12:00 blocked"}, sv.replans())
 }

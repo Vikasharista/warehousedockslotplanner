@@ -74,6 +74,13 @@ class CommitIT {
         assertThat(query("SELECT appointment_id FROM solver_plan_item WHERE run_id = ? AND allocation_status <> 'ALLOCATED'"
                 + " AND appointment_id IS NOT NULL", runId)).isEmpty();
 
+        // The agent's change feed got one row per booking written or released, in this commit.
+        assertThat(count("SELECT count(*) FROM booking_changes WHERE run_id = '" + runId + "'"))
+                .isEqualTo(count("SELECT count(*) FROM solver_plan_item WHERE run_id = '" + runId
+                        + "' AND booking_action IN ('NEW', 'MOVED', 'RELEASED')"));
+        assertThat(count("SELECT count(*) FROM booking_changes WHERE run_id = '" + runId
+                + "' AND action <> 'RELEASED' AND to_slot_id IS NULL")).isZero();
+
         clock("2026-08-04T09:57:00+05:30");
         Map<String, Object> second = replan("SCHEDULED");
         assertThat(second).containsEntry("status", "COMMITTED");
@@ -314,6 +321,28 @@ class CommitIT {
                 """, bumped.get(0).get("shipment_id"), bumped.get(0).get("original_slot_id")))
                 .extracting(m -> (String) m.get("cancellation_reason"))
                 .singleElement().asString().contains("BUMPED_FOR_CRITICAL");
+    }
+
+    @Test
+    @Order(8)
+    void aDockTakenOutOfServiceAfterSolvingMakesTheRunStale() throws Exception {
+        clock("2026-08-04T11:50:00+05:30");
+        exec("UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0 WHERE shipment_id = 'SHP1020' AND is_current = 1");
+        String runId = solve("2026-08-04T11:50:00+05:30");
+        String dock = (String) query("SELECT dock_id FROM solver_plan_item WHERE run_id = ? AND shipment_id = 'SHP1020'", runId)
+                .get(0).get("dock_id");
+        exec("UPDATE docks SET dock_status = 'OUT_OF_SERVICE' WHERE dock_id = '" + dock + "'");
+        long before = count("SELECT count(*) FROM appointments");
+        try {
+            // Refused by the validator (V4) or, if the dock changed after validation, by the stale check.
+            given().when().post("/runs/" + runId + "/commit").then().statusCode(200)
+                    .body("status", equalTo("REJECTED"))
+                    .body("outcome", org.hamcrest.Matchers.anyOf(org.hamcrest.Matchers.containsString("V4"),
+                            org.hamcrest.Matchers.containsString("dock is OUT_OF_SERVICE")));
+            assertThat(count("SELECT count(*) FROM appointments")).isEqualTo(before);
+        } finally {
+            exec("UPDATE docks SET dock_status = 'ACTIVE' WHERE dock_id = '" + dock + "'");
+        }
     }
 
     static final String CHECKIN_SHP1009 = """

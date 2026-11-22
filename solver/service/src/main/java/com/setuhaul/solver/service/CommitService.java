@@ -62,6 +62,10 @@ public class CommitService {
             SELECT i.shipment_id, i.slot_id, 'slot is ' || sl.slot_status
             FROM solver_plan_item i JOIN appointment_slots sl ON sl.slot_id = i.slot_id
             WHERE i.run_id = ? AND i.booking_action IN ('NEW', 'MOVED') AND sl.slot_status <> 'OPEN'
+            UNION ALL
+            SELECT i.shipment_id, i.slot_id, 'dock is ' || d.dock_status
+            FROM solver_plan_item i JOIN docks d ON d.dock_id = i.dock_id
+            WHERE i.run_id = ? AND i.booking_action IN ('NEW', 'MOVED') AND d.dock_status <> 'ACTIVE'
             ORDER BY 1
             """.formatted(ACTIVE);
 
@@ -200,9 +204,9 @@ public class CommitService {
             }
         }
         try (PreparedStatement ps = c.prepareStatement(TAKEN_SLOTS)) {
-            ps.setString(1, run.runId());
-            ps.setString(2, run.runId());
-            ps.setString(3, run.runId());
+            for (int i = 1; i <= 4; i++) {
+                ps.setString(i, run.runId());
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     out.add(rs.getString(2) + " for " + rs.getString(1) + " " + rs.getString(3));
@@ -284,6 +288,32 @@ public class CommitService {
                 link.executeUpdate();
                 booked++;
             }
+        }
+        // The change feed the driver agent reads: one row per booking created, moved or released.
+        try (PreparedStatement feed = c.prepareStatement("""
+                INSERT INTO booking_changes (facility_id, run_id, shipment_id, action, from_slot_id, to_slot_id,
+                    reason_code, detail, changed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """)) {
+            for (Api.Item it : run.items()) {
+                String action = it.bookingAction();
+                boolean placed = "ALLOCATED".equals(it.allocationStatus()) && ("NEW".equals(action) || "MOVED".equals(action));
+                boolean released = "RELEASED".equals(action) && cancelledByShipment.containsKey(it.shipmentId());
+                if (!placed && !released) {
+                    continue;
+                }
+                feed.setString(1, run.facilityId());
+                feed.setString(2, run.runId());
+                feed.setString(3, it.shipmentId());
+                feed.setString(4, action);
+                feed.setString(5, it.originalSlotId());
+                feed.setString(6, placed ? it.slotId() : null);
+                feed.setString(7, it.reasonCode());
+                feed.setString(8, it.detail());
+                feed.setObject(9, now);
+                feed.addBatch();
+            }
+            feed.executeBatch();
         }
         return new int[] {booked, cancelledByShipment.size()};
     }
