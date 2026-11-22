@@ -50,4 +50,27 @@ class SolverSettingsTest {
         Files.writeString(f, "gate_buffer_min=-5\n");
         assertThatThrownBy(() -> SolverSettings.withOverrides(f)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @org.junit.jupiter.api.Test
+    void bumpingDefaultsAndTheirSafetyRule() throws Exception {
+        var b = SolverSettings.defaults().bumping();
+        org.assertj.core.api.Assertions.assertThat(b.enabled()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(b.by()).containsExactly("CRITICAL");
+        org.assertj.core.api.Assertions.assertThat(b.victims()).containsExactlyInAnyOrder("LOW", "NORMAL");
+        org.assertj.core.api.Assertions.assertThat(b.freezeMin()).isEqualTo(120);
+        // A penalty below HIGH's weight (9) would let HIGH trucks justify bumps; at or above CRITICAL's (27) nothing could.
+        for (String penalty : new String[] {"5", "27", "40"}) {
+            var f = java.nio.file.Files.createTempFile("bump", ".properties");
+            java.nio.file.Files.writeString(f, "bump_penalty=" + penalty + "\n");
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> SolverSettings.withOverrides(f))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("bump_penalty");
+        }
+        var both = java.nio.file.Files.createTempFile("bump", ".properties");
+        java.nio.file.Files.writeString(both, "bump_victims=LOW,CRITICAL\n");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> SolverSettings.withOverrides(both))
+                .hasMessageContaining("cannot both bump and be bumped");
+        var off = java.nio.file.Files.createTempFile("bump", ".properties");
+        java.nio.file.Files.writeString(off, "bump_enabled=false\nbump_penalty=0\n");
+        org.assertj.core.api.Assertions.assertThat(SolverSettings.withOverrides(off).bumping().enabled()).isFalse();
+    }
 }

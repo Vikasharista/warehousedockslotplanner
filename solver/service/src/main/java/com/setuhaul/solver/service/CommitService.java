@@ -243,8 +243,7 @@ public class CommitService {
                 if (!"MOVED".equals(it.bookingAction()) && !"RELEASED".equals(it.bookingAction())) {
                     continue;
                 }
-                String why = it.reasonCode() != null && "RELEASED".equals(it.bookingAction())
-                        ? it.reasonCode() : "MOVED";
+                String why = it.reasonCode() != null ? it.reasonCode() : it.bookingAction();
                 ps.setObject(1, now);
                 ps.setString(2, "re-planned by " + run.runId() + ": " + why);
                 ps.setObject(3, now);

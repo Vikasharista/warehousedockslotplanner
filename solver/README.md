@@ -70,6 +70,27 @@ STALE and SLOT_TAKEN ask for a fresh re-plan, which `POST /replan` and the trigg
 total). Kept bookings, flagged weight breaches, trucks in the dock and driver holds the plan keeps are never written.
 Every committed change appears in the `v_change_log` view.
 
+## Bumping for CRITICAL requests
+
+Feasible confirmed bookings stay where they are, with one exception. A CRITICAL truck may take the slot of one LOW or
+NORMAL confirmed booking that starts more than 2 hours after the plan. Trucks at the gate, flagged bookings and driver
+holds are never bumped.
+
+How the solver enforces it:
+- Such bookings start the search in their own slot, but are not pinned.
+- Moving one off (or leaving it unassigned) costs `bump_penalty` (10) on the unassigned level, L1. That is more than
+  a HIGH truck is worth there (9) and less than a CRITICAL truck (27), so only placing a CRITICAL truck pays for a
+  bump. The settings refuse to load if the penalty breaks that rule.
+- H13: only a CRITICAL truck may use the dock time a bumped booking had (its slot, plus any unload running past it).
+- H14: each truck may use the dock time of at most one bumped booking.
+
+The bumped truck is re-planned into another free slot if one fits, otherwise it goes to the exceptions list. Its
+plan item and cancelled booking carry `BUMPED_FOR_CRITICAL` and name the CRITICAL truck that took the slot.
+Settings: `bump_enabled`, `bump_by`, `bump_victims`, `bump_freeze_min`, `bump_penalty`.
+
+On the load test with 20 late requests (4 of them CRITICAL): all 6 late CRITICAL trucks were placed by bumping 5 LOW
+or NORMAL bookings, one each. Late HIGH requests stayed unassigned, and the validator passed.
+
 ## Triggers
 
 A timer (`setuhaul.triggers.scan-every`, 60 s) checks each facility in `setuhaul.triggers.facilities` against the

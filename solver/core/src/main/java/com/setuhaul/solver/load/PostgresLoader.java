@@ -396,7 +396,8 @@ public final class PostgresLoader {
 
         DockPlan plan = new DockPlan(facilityId, Instant.ofEpochSecond(asOf * 60), List.copyOf(docks.values()),
                 List.copyOf(slots.values()), List.copyOf(blocks),
-                new PlanWeights(settings.unforcedMovePenalty(), settings.forcedMovePenalty()), assignments);
+                new PlanWeights(settings.unforcedMovePenalty(), settings.forcedMovePenalty(),
+                        settings.bumping().enabled() ? settings.bumping().penalty() : 0, settings.bumping().by()), assignments);
         return new LoadResult(plan, zone, Instant.ofEpochSecond(asOf * 60), Instant.ofEpochSecond(horizonEnd * 60),
                 flagged, inDock, outsideHorizon, emptyReasons);
     }
@@ -429,14 +430,23 @@ public final class PostgresLoader {
         a.setOriginalBooking(b.slotId, slot, status, reason);
         if (reason == null) {
             a.setSlot(slot);
-            a.setPinned(status == BookingStatus.PENDING_CONFIRMATION || settings.pinFeasibleConfirmed());
+            boolean hold = status == BookingStatus.PENDING_CONFIRMATION;
+            // A feasible confirmed booking of a bumpable priority, far enough ahead and not yet at the gate, stays in
+            // its slot but movable, so a CRITICAL truck may take the slot at the bump penalty.
+            var bumping = settings.bumping();
+            boolean bumpable = !hold && settings.pinFeasibleConfirmed() && bumping.enabled()
+                    && bumping.victims().contains(a.getPriorityCode())
+                    && slot.getStartMin() >= asOf + bumping.freezeMin()
+                    && !"AT_GATE".equals(a.getEtaConfidence());
+            a.setBumpable(bumpable);
+            a.setPinned(hold || (settings.pinFeasibleConfirmed() && !bumpable));
         }
     }
 
     /** Two kept bookings on one dock may still overlap (a long unload); the later one is released. */
     private static void releaseOverlappingPins(List<ShipmentAssignment> assignments) {
         List<ShipmentAssignment> pinned = assignments.stream()
-                .filter(ShipmentAssignment::isPinned)
+                .filter(a -> a.isPinned() || a.isBumpable())
                 .sorted(Comparator.comparingLong(ShipmentAssignment::startMin))
                 .toList();
         Map<Dock, Long> busyUntil = new HashMap<>();
@@ -445,6 +455,7 @@ public final class PostgresLoader {
             if (until != null && a.startMin() < until) {
                 a.setOriginalBooking(a.getOriginalSlotId(), a.getOriginalSlot(), a.getOriginalStatus(), "OVERLAPS_EARLIER_BOOKING");
                 a.setPinned(false);
+                a.setBumpable(false);
                 a.setSlot(null);
             } else {
                 busyUntil.put(a.dock(), a.endMin());

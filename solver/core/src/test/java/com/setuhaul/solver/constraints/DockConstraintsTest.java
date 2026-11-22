@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -230,6 +231,88 @@ class DockConstraintsTest {
             var w = new PlanWeights(240, 30);
             verifier.verifyThat(DockConstraints::unforcedMove).given(kept, hold, w).hasNoImpact();
             verifier.verifyThat(DockConstraints::forcedMove).given(kept, hold, w).hasNoImpact();
+        }
+    }
+
+    @Nested
+    class Bumping {
+
+        final PlanWeights w = new PlanWeights(240, 30, 10, Set.of("CRITICAL"));
+
+        ShipmentAssignment truckOf(String id, String code, int weight, int unload) {
+            ShipmentAssignment a = new ShipmentAssignment(id, code, weight, null, false, 10_000, unload, 600);
+            a.setCandidateSlots(ALL.stream().filter(s -> Compatibility.violation(a, s) == null).toList());
+            return a;
+        }
+
+        /** A LOW truck booked (CONFIRMED, feasible) on {@code booked}, left movable for bumping. */
+        ShipmentAssignment bumpable(String id, Slot booked) {
+            var a = truckOf(id, "LOW", 1, 60);
+            a.setOriginalBooking(booked, BookingStatus.CONFIRMED, null);
+            a.setBumpable(true);
+            a.setSlot(booked);
+            return a;
+        }
+
+        @Test
+        void aBumpCostsThePenaltyWhetherTheTruckMovesOrGoesUnassigned() {
+            var kept = bumpable("K", D1_10);
+            var moved = at(bumpable("M", D1_11), D2_11);
+            var dropped = bumpable("U", D2_10);
+            dropped.setSlot(null);
+            verifier.verifyThat(DockConstraints::bump).given(kept, w).hasNoImpact();
+            verifier.verifyThat(DockConstraints::bump).given(kept, moved, dropped, w).penalizesBy(20);
+            assertThat(kept.isCommitted()).isTrue();
+            assertThat(moved.isCommitted()).isFalse();
+        }
+
+        @Test
+        void onlyACriticalTruckMayTakeABumpedSlot() {
+            var bumped = at(bumpable("L", D1_10), D2_11);
+            var critical = at(truckOf("C", "CRITICAL", 27, 60), D1_10);
+            var high = at(truckOf("H", "HIGH", 9, 60), D1_10);
+            verifier.verifyThat(DockConstraints::bumpedSlotTaker).given(bumped, critical, w).hasNoImpact();
+            verifier.verifyThat(DockConstraints::bumpedSlotTaker).given(bumped, high, w).penalizesBy(1);
+            // Also when the bumped truck found no other slot.
+            var dropped = bumpable("U", D1_11);
+            dropped.setSlot(null);
+            var normal = at(truckOf("N", "NORMAL", 3, 60), D1_11);
+            verifier.verifyThat(DockConstraints::bumpedSlotTaker).given(dropped, normal, w).penalizesBy(1);
+            // A truck in its own booked slot is no bump at all.
+            verifier.verifyThat(DockConstraints::bumpedSlotTaker).given(bumpable("K", D2_10),
+                    at(truckOf("H2", "HIGH", 9, 60), D1_10), w).hasNoImpact();
+        }
+
+        @Test
+        void oneCriticalTruckTakesAtMostOneBumpedSlot() {
+            var a = bumpable("A", D1_10);
+            a.setSlot(null);
+            var b = bumpable("B", D1_11);
+            b.setSlot(null);
+            var longCritical = at(truckOf("C", "CRITICAL", 27, 90), D1_10); // 10:00-11:30 covers both
+            var shortCritical = at(truckOf("C2", "CRITICAL", 27, 60), D1_10);
+            verifier.verifyThat(DockConstraints::oneBumpEach).given(a, b, longCritical).penalizesBy(1);
+            verifier.verifyThat(DockConstraints::oneBumpEach).given(a, b, shortCritical).hasNoImpact();
+        }
+
+        @Test
+        void aBumpedLongUnloadAlsoFreesTheStartOfTheNextSlot() {
+            // A LOW truck booked 10:00 unloading 75 min blocks 11:00-11:15 too; bumped, the 11:00 slot is its slot.
+            var longLow = truckOf("L", "LOW", 1, 75);
+            longLow.setOriginalBooking(D1_10, BookingStatus.CONFIRMED, null);
+            longLow.setBumpable(true);
+            longLow.setSlot(null);
+            var high = at(truckOf("H", "HIGH", 9, 60), D1_11);
+            verifier.verifyThat(DockConstraints::bumpedSlotTaker).given(longLow, high, w).penalizesBy(1);
+            var critical = at(truckOf("C", "CRITICAL", 27, 60), D1_11);
+            assertThat(critical.takesSlotOf(longLow)).isTrue();
+        }
+
+        @Test
+        void aKeptBumpableBookingIsACommitmentForInversions() {
+            var low = bumpable("L", D1_10);
+            var high = at(truckOf("H", "HIGH", 9, 60), D1_11);
+            verifier.verifyThat(DockConstraints::priorityInversion).given(low, high).hasNoImpact();
         }
     }
 }

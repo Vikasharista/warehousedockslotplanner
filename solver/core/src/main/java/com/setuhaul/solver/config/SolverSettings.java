@@ -8,6 +8,9 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Every weight, buffer and limit the solver uses. Defaults come from {@code solver-defaults.properties};
@@ -24,11 +27,32 @@ public record SolverSettings(
         long unforcedMovePenalty,
         long forcedMovePenalty,
         boolean pinFeasibleConfirmed,
+        Bumping bumping,
         long solveSeconds,
         long unimprovedSeconds,
         long randomSeed) {
 
     public static final String DEFAULTS_RESOURCE = "/solver-defaults.properties";
+
+    /**
+     * Which trucks may take a confirmed booking's slot, from whom, and at what cost.
+     *
+     * @param enabled    off: every feasible confirmed booking stays pinned
+     * @param by         priorities that may bump (CRITICAL)
+     * @param victims    priorities of bookings that may be bumped (LOW, NORMAL)
+     * @param freezeMin  bookings starting within this many minutes of the plan are never bumped
+     * @param penalty    cost of bumping one booking, on the unassigned-truck level (L1)
+     */
+    public record Bumping(boolean enabled, Set<String> by, Set<String> victims, int freezeMin, long penalty) {
+        public Bumping {
+            by = Set.copyOf(by);
+            victims = Set.copyOf(victims);
+        }
+
+        public static Bumping off() {
+            return new Bumping(false, Set.of(), Set.of(), 0, 0);
+        }
+    }
 
     public SolverSettings {
         priorityWeights = Map.copyOf(priorityWeights);
@@ -40,6 +64,30 @@ public record SolverSettings(
         if (gateBufferMin < 0 || lowConfidenceMarginMin < 0 || horizonHours <= 0 || holdExpiryMin < 0
                 || inDockOverrunMin < 0 || defaultUnloadMin <= 0) {
             throw new IllegalArgumentException("buffers must be >= 0, horizon and unload > 0");
+        }
+        if (bumping == null) {
+            bumping = Bumping.off();
+        }
+        if (bumping.enabled()) {
+            if (bumping.by().isEmpty() || bumping.victims().isEmpty() || bumping.freezeMin() < 0) {
+                throw new IllegalArgumentException("bumping needs bump_by and bump_victims, and bump_freeze_min >= 0");
+            }
+            for (String p : bumping.by()) {
+                if (bumping.victims().contains(p)) {
+                    throw new IllegalArgumentException("priority " + p + " cannot both bump and be bumped");
+                }
+                // Placing a bumping truck must be worth the bump...
+                if (priorityWeights.getOrDefault(p, 0) <= bumping.penalty()) {
+                    throw new IllegalArgumentException("bump_penalty must be below the weight of " + p);
+                }
+            }
+            for (var e : priorityWeights.entrySet()) {
+                // ...and placing any other truck must not be.
+                if (!bumping.by().contains(e.getKey()) && e.getValue() > bumping.penalty()) {
+                    throw new IllegalArgumentException("bump_penalty must be at least the weight of " + e.getKey()
+                            + " (" + e.getValue() + "), or " + e.getKey() + " trucks could justify a bump");
+                }
+            }
         }
     }
 
@@ -55,7 +103,7 @@ public record SolverSettings(
     public SolverSettings withSolveSeconds(long seconds) {
         return new SolverSettings(gateBufferMin, lowConfidenceMarginMin, horizonHours, inDockOverrunMin, holdExpiryMin,
                 defaultUnloadMin, priorityWeights, unforcedMovePenalty, forcedMovePenalty, pinFeasibleConfirmed,
-                seconds, Math.min(unimprovedSeconds, seconds), randomSeed);
+                bumping, seconds, Math.min(unimprovedSeconds, seconds), randomSeed);
     }
 
     public static SolverSettings defaults() {
@@ -107,6 +155,8 @@ public record SolverSettings(
                 longOf(p, "unforced_move_penalty"),
                 longOf(p, "forced_move_penalty"),
                 Boolean.parseBoolean(required(p, "pin_feasible_confirmed")),
+                new Bumping(Boolean.parseBoolean(required(p, "bump_enabled")), setOf(p, "bump_by"),
+                        setOf(p, "bump_victims"), intOf(p, "bump_freeze_min"), longOf(p, "bump_penalty")),
                 longOf(p, "solve_seconds"),
                 longOf(p, "unimproved_seconds"),
                 longOf(p, "random_seed"));
@@ -118,6 +168,11 @@ public record SolverSettings(
             throw new IllegalArgumentException("missing setting " + key);
         }
         return v.trim();
+    }
+
+    private static Set<String> setOf(Properties p, String key) {
+        return Stream.of(required(p, key).split(",")).map(s -> s.trim().toUpperCase(Locale.ROOT))
+                .filter(s -> !s.isEmpty()).collect(Collectors.toUnmodifiableSet());
     }
 
     private static int intOf(Properties p, String key) {

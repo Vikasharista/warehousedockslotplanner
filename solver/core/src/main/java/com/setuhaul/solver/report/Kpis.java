@@ -36,7 +36,7 @@ public record Kpis(
         int pickupInversions = 0;
         for (ShipmentAssignment hi : assigned) {
             for (ShipmentAssignment lo : assigned) {
-                if (lo == hi || lo.isPinned() || lo.startMin() >= hi.startMin() || !hi.canUse(lo.getSlot())) {
+                if (lo == hi || lo.isCommitted() || lo.startMin() >= hi.startMin() || !hi.canUse(lo.getSlot())) {
                     continue;
                 }
                 if (hi.getPriorityWeight() > lo.getPriorityWeight()) {

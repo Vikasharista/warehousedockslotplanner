@@ -43,7 +43,12 @@ public final class PlanItems {
                 items.add(new Api.Item(a.getShipmentId(), "ALLOCATED", a.getVehicleId(), a.getPriorityCode(),
                         dockId, a.getSlot().getId(), ts(a.startMin(), zone), ts(a.endMin(), zone), seq, ready,
                         etaBasis, (int) a.waitMin(), action, a.getOriginalSlotId(), a.isPinned(),
-                        a.getReleaseReason(), null, null));
+                        a.isBumped() ? BUMPED : a.getReleaseReason(), a.isBumped() ? bumpDetail(a, solved) : null,
+                        null));
+            } else if (a.isBumped()) {
+                items.add(new Api.Item(a.getShipmentId(), "UNASSIGNED", a.getVehicleId(), a.getPriorityCode(),
+                        null, null, null, null, null, ready, etaBasis, null, "RELEASED", a.getOriginalSlotId(), false,
+                        BUMPED, bumpDetail(a, solved) + "; no other free slot", null));
             } else {
                 String reason = load.emptyCandidateReasons().getOrDefault(a.getShipmentId(), "NO_FREE_SLOT");
                 items.add(new Api.Item(a.getShipmentId(), "UNASSIGNED", a.getVehicleId(), a.getPriorityCode(),
@@ -56,6 +61,16 @@ public final class PlanItems {
         notes(items, load.inDock(), "IN_DOCK");
         notes(items, load.outsideHorizon(), "OUTSIDE_HORIZON");
         return items;
+    }
+
+    /** Reason code of a booking that gave its slot to a CRITICAL truck. */
+    static final String BUMPED = "BUMPED_FOR_CRITICAL";
+
+    private static String bumpDetail(ShipmentAssignment bumped, DockPlan solved) {
+        return solved.getAssignments().stream()
+                .filter(t -> t != bumped && t.getSlot() != null && t.takesSlotOf(bumped))
+                .map(t -> "slot given to " + t.getPriorityCode() + " " + t.getShipmentId())
+                .findFirst().orElse("slot given to a CRITICAL truck");
     }
 
     private static void notes(List<Api.Item> items, List<LoadResult.Note> notes, String status) {

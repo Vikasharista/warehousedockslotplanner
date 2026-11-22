@@ -34,6 +34,11 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   was planned on, and every 15 minutes.
 - A shipment exists for planning only from its `created_at`; every reader filters on it, which is how generated
   requests arrive during the simulated day. Generated load-test data (`SHP-G…`) lives in Postgres only.
+- Feasible CONFIRMED bookings stay pinned, except that a CRITICAL truck may bump one LOW or NORMAL booking
+  starting more than 2 hours after the plan (never a truck at the gate, a flagged booking or a driver hold). The
+  bump costs `bump_penalty` (10) on the unassigned level, between HIGH's weight (9) and CRITICAL's (27); only a
+  CRITICAL truck may use a bumped slot, at most one each; the bumped truck is re-planned or goes to the exceptions
+  list (`BUMPED_FOR_CRITICAL`). All of it is configuration (`bump_*` in solver-defaults.properties).
 - Driver holds belong to dock-api (Go). A truck with a booking holds a second slot beside it (`is_current = 0`) until
   the driver confirms. Holds and solver commits share one per-facility advisory lock
   (`setuhaul.bookings:<facility>`).

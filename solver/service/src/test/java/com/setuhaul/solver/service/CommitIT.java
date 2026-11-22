@@ -235,6 +235,87 @@ class CommitIT {
                 .extracting(m -> m.get("run_trigger")).containsExactly("NEW_REQUEST");
     }
 
+    @Test
+    @Order(7)
+    void aCriticalRequestBumpsOneLowBookingAndAHighOneDoesNot() throws Exception {
+        clock("2026-08-04T11:30:00+05:30");
+        // Book every free reefer slot between 14:00 and 18:00 for LOW reefer trucks (copies of SHP1015).
+        exec("""
+                WITH free AS (
+                    SELECT sl.slot_id, row_number() OVER (ORDER BY sl.slot_start_ts) AS n
+                    FROM appointment_slots sl JOIN docks d ON d.dock_id = sl.dock_id
+                    WHERE d.facility_id = 'FAC-JAI-01' AND d.dock_type = 'REEFER' AND sl.slot_status = 'OPEN'
+                      AND sl.slot_start_ts >= '2026-08-04T14:00:00+05:30' AND sl.slot_start_ts < '2026-08-04T18:00:00+05:30'
+                      AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = sl.slot_id
+                                      AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+                ), trucks AS (
+                    INSERT INTO shipments (shipment_id, order_reference, carrier_id, driver_id, vehicle_id, origin_name,
+                        origin_city, destination_facility_id, customer_name, product_category, load_weight_kg, pallet_count,
+                        required_dock_type, temperature_control_required, priority_code, planned_departure_ts,
+                        actual_departure_ts, original_eta_ts, latest_eta_ts, expected_unload_min, current_status,
+                        created_at, updated_at)
+                    SELECT 'SHP-IT-LOW' || f.n, 'ORD-IT-LOW' || f.n, s.carrier_id, s.driver_id, s.vehicle_id, s.origin_name,
+                        'Dausa', s.destination_facility_id, s.customer_name, s.product_category, s.load_weight_kg,
+                        s.pallet_count, 'REEFER', 1, 'LOW', '2026-08-04T10:30:00+05:30', NULL,
+                        '2026-08-04T12:00:00+05:30', NULL, 60, 'ASSIGNED', '2026-08-04T09:00:00+05:30',
+                        '2026-08-04T09:00:00+05:30'
+                    FROM free f CROSS JOIN shipments s WHERE s.shipment_id = 'SHP1015'
+                    RETURNING shipment_id
+                )
+                INSERT INTO appointments (appointment_id, shipment_id, slot_id, appointment_status, booking_source,
+                    is_current, booked_at, confirmed_at, updated_at)
+                SELECT 'APT-IT-LOW' || f.n, 'SHP-IT-LOW' || f.n, f.slot_id, 'CONFIRMED', 'PLANNER', 1,
+                       '2026-08-04T09:00:00+05:30', '2026-08-04T09:00:00+05:30', '2026-08-04T09:00:00+05:30'
+                FROM free f
+                """);
+        assertThat(count("SELECT count(*) FROM shipments WHERE shipment_id LIKE 'SHP-IT-LOW%'")).isGreaterThan(0);
+        // A HIGH reefer request ready at 14:00: every reefer slot it could use is booked.
+        exec("""
+                INSERT INTO shipments (shipment_id, order_reference, carrier_id, driver_id, vehicle_id, origin_name,
+                    origin_city, destination_facility_id, customer_name, product_category, load_weight_kg, pallet_count,
+                    required_dock_type, temperature_control_required, priority_code, planned_departure_ts,
+                    actual_departure_ts, original_eta_ts, latest_eta_ts, expected_unload_min, current_status,
+                    created_at, updated_at)
+                SELECT 'SHP-IT-CRIT', 'ORD-IT-CRIT', carrier_id, driver_id, vehicle_id, origin_name, 'Dausa',
+                    destination_facility_id, customer_name, product_category, load_weight_kg, pallet_count, 'REEFER', 1,
+                    'HIGH', '2026-08-04T12:00:00+05:30', NULL, '2026-08-04T13:30:00+05:30', NULL, 60, 'ASSIGNED',
+                    '2026-08-04T11:00:00+05:30', '2026-08-04T11:00:00+05:30'
+                FROM shipments WHERE shipment_id = 'SHP1015'
+                """);
+        String high = (String) replan("MANUAL").get("finalRunId");
+        assertThat(query("SELECT allocation_status FROM solver_plan_item WHERE run_id = ? AND shipment_id = 'SHP-IT-CRIT'",
+                high)).extracting(m -> m.get("allocation_status")).containsExactly("UNASSIGNED");
+        assertThat(query("SELECT 1 FROM solver_plan_item WHERE run_id = ? AND reason_code = 'BUMPED_FOR_CRITICAL'", high))
+                .isEmpty();
+
+        // As CRITICAL it takes exactly one LOW booking's reefer slot; that truck is re-planned and its booking cancelled.
+        exec("UPDATE shipments SET priority_code = 'CRITICAL' WHERE shipment_id = 'SHP-IT-CRIT'");
+        clock("2026-08-04T11:33:00+05:30");
+        Map<String, Object> r = replan("MANUAL");
+        assertThat(r).containsEntry("status", "COMMITTED");
+        String runId = (String) r.get("finalRunId");
+        List<Map<String, Object>> crit = query("""
+                SELECT i.dock_id, i.slot_id, a.appointment_status FROM solver_plan_item i
+                JOIN appointments a ON a.appointment_id = i.appointment_id
+                WHERE i.run_id = ? AND i.shipment_id = 'SHP-IT-CRIT'
+                """, runId);
+        assertThat(crit).hasSize(1);
+        assertThat(crit.get(0)).containsEntry("appointment_status", "CONFIRMED");
+        List<Map<String, Object>> bumped = query("""
+                SELECT shipment_id, original_slot_id, booking_action, detail FROM solver_plan_item
+                WHERE run_id = ? AND reason_code = 'BUMPED_FOR_CRITICAL'
+                """, runId);
+        assertThat(bumped).hasSize(1);
+        assertThat((String) bumped.get(0).get("shipment_id")).startsWith("SHP-IT-LOW");
+        assertThat(bumped.get(0)).containsEntry("original_slot_id", crit.get(0).get("slot_id"));
+        assertThat((String) bumped.get(0).get("detail")).contains("CRITICAL SHP-IT-CRIT");
+        assertThat(query("""
+                SELECT cancellation_reason FROM appointments WHERE shipment_id = ? AND slot_id = ?
+                """, bumped.get(0).get("shipment_id"), bumped.get(0).get("original_slot_id")))
+                .extracting(m -> (String) m.get("cancellation_reason"))
+                .singleElement().asString().contains("BUMPED_FOR_CRITICAL");
+    }
+
     static final String CHECKIN_SHP1009 = """
             INSERT INTO facility_checkins (checkin_id, shipment_id, facility_id, gate_in_ts, arrival_state, queue_state,
                 updated_at)
