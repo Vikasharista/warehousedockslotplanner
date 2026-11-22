@@ -26,3 +26,14 @@ planning:
 
 holds:
   sweep_every: 30s
+
+# Sign-in for the plan view. Set the secret and the accounts in the environment, never in this file:
+#   APP_AUTH_JWT_SECRET      at least 32 random characters (signs the session cookie)
+#   APP_AUTH_DEMO_ACCOUNTS   "email:password" entries separated by commas; passwords at least 10 characters
+auth:
+  jwt:
+    secret: ""
+  demo_accounts: ""
+  session_ttl: 12h
+  # true when the site is served over HTTPS (deployment); false for http://localhost
+  secure_cookie: false

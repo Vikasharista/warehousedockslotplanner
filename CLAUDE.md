@@ -39,6 +39,10 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   bump costs `bump_penalty` (10) on the unassigned level, between HIGH's weight (9) and CRITICAL's (27); only a
   CRITICAL truck may use a bumped slot, at most one each; the bumped truck is re-planned or goes to the exceptions
   list (`BUMPED_FOR_CRITICAL`). All of it is configuration (`bump_*` in solver-defaults.properties).
+- The demo is deployed as the same Docker Compose stack on one Linux VM (`docker-compose.deploy.yml`): Caddy
+  HTTPS in front, no public ports for the services, secrets only from `.env`. Reviewers sign in with seeded
+  email + password demo accounts (bcrypt in `app_users`, session cookie), all with full access. A nightly reset
+  (03:00 IST) reloads the snapshot at 09:55 with the load test and keeps the accounts. Hosting provider undecided.
 - Driver holds belong to dock-api (Go). A truck with a booking holds a second slot beside it (`is_current = 0`) until
   the driver confirms. Holds and solver commits share one per-facility advisory lock
   (`setuhaul.bookings:<facility>`).

@@ -19,7 +19,7 @@ from pathlib import Path
 import psycopg
 from psycopg import sql
 
-from .paths import COMMIT_TABLES_SQL, GPS_TABLES_SQL, PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
+from .paths import AUTH_TABLES_SQL, COMMIT_TABLES_SQL, GPS_TABLES_SQL, PLAN_TABLES_SQL, SCHEMA_SQL, SNAPSHOT_DB
 
 # The moment the snapshot describes: the default start of the simulated clock.
 SNAPSHOT_MOMENT = "2026-08-04T09:55:00+05:30"
@@ -111,12 +111,13 @@ def order_self_referencing(rows: list[dict], key: str, parent: str) -> list[dict
 
 def apply_schema(conn: psycopg.Connection, schema_path: Path = SCHEMA_SQL,
                  plan_tables_path: Path = PLAN_TABLES_SQL, gps_tables_path: Path = GPS_TABLES_SQL,
-                 commit_tables_path: Path = COMMIT_TABLES_SQL) -> None:
-    """Create the snapshot tables, indexes and views, then the plan, GPS and commit tables."""
+                 commit_tables_path: Path = COMMIT_TABLES_SQL, auth_tables_path: Path = AUTH_TABLES_SQL) -> None:
+    """Create the snapshot tables, indexes and views, then the plan, GPS, commit and account tables."""
     conn.execute(schema_path.read_text())
     conn.execute(plan_tables_path.read_text())
     conn.execute(gps_tables_path.read_text())
     conn.execute(commit_tables_path.read_text())
+    conn.execute(auth_tables_path.read_text())
 
 
 def set_clock(conn: psycopg.Connection, start: str | None, rate: float = 1.0) -> None:

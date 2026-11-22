@@ -12,7 +12,8 @@
 #   export DATABASE_URL=postgresql://postgres:postgres@localhost:55432/setuhaul
 #   export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/postgres
 #
-# Ports are bound to 127.0.0.1: the stack has no login and is for local use only.
+# Sign in at http://localhost:5173 with the local demo account demo@setuhaul.local / setuhaul-demo-2026
+# (local only; a deployment sets its own accounts and secrets, see docs/deploy.md). Ports are bound to 127.0.0.1.
 services:
   db:
     image: postgres:16.6
@@ -89,6 +90,9 @@ services:
     environment:
       APP_DATABASE_POSTGRES_DSN: postgres://postgres:postgres@db:5432/setuhaul?sslmode=disable
       APP_SOLVER_URL: http://solver:8081
+      # Local development only. docker-compose.deploy.yml replaces both from your .env.
+      APP_AUTH_JWT_SECRET: local-development-secret-not-for-deployment
+      APP_AUTH_DEMO_ACCOUNTS: ${SETUHAUL_DEMO_ACCOUNTS:-demo@setuhaul.local:setuhaul-demo-2026}
     ports:
       - "127.0.0.1:8082:8082"
     depends_on:

@@ -1,0 +1,73 @@
+# Deployment on any Linux VM (see docs/deploy.md). Used on top of docker-compose.yml:
+#   cp deploy.env.example .env && edit .env
+#   docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --build
+# Only Caddy is reachable from outside (HTTPS on 443, 80 for the certificate and redirect). Every secret comes from
+# .env; nothing has a default. Needs Docker Compose v2.24 or later (for !reset).
+services:
+  db:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${SETUHAUL_DB_PASSWORD:?set SETUHAUL_DB_PASSWORD in .env}
+    restart: unless-stopped
+
+  seed:
+    environment:
+      DATABASE_URL: postgresql://postgres:${SETUHAUL_DB_PASSWORD}@db:5432/setuhaul
+
+  gps:
+    environment:
+      DATABASE_URL: postgresql://postgres:${SETUHAUL_DB_PASSWORD}@db:5432/setuhaul
+
+  solver:
+    ports: !reset []
+    environment:
+      SETUHAUL_DB_PASSWORD: ${SETUHAUL_DB_PASSWORD}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
+    mem_limit: 1536m
+
+  api:
+    ports: !reset []
+    environment:
+      APP_DATABASE_POSTGRES_DSN: postgres://postgres:${SETUHAUL_DB_PASSWORD}@db:5432/setuhaul?sslmode=disable
+      APP_AUTH_JWT_SECRET: ${SETUHAUL_SESSION_SECRET:?set SETUHAUL_SESSION_SECRET in .env}
+      APP_AUTH_DEMO_ACCOUNTS: ${SETUHAUL_DEMO_ACCOUNTS:?set SETUHAUL_DEMO_ACCOUNTS in .env}
+      APP_AUTH_SECURE_COOKIE: "true"
+
+  web:
+    ports: !reset []
+
+  # Restarts the demo from the snapshot at 09:55 IST every night (default 03:00 IST); accounts are kept.
+  reset:
+    build:
+      context: .
+      dockerfile: jobs/Dockerfile
+    image: setuhaul/jobs:local
+    command: ["python", "-m", "setuhaul_jobs.demo_reset", "--at", "${SETUHAUL_RESET_AT:-03:00}", "--tz", "Asia/Kolkata"]
+    environment:
+      DATABASE_URL: postgresql://postgres:${SETUHAUL_DB_PASSWORD}@db:5432/setuhaul
+      SETUHAUL_SCENARIO_TRUCKS: ${SETUHAUL_SCENARIO_TRUCKS:-70}
+      SETUHAUL_SCENARIO_TRICKLE: ${SETUHAUL_SCENARIO_TRICKLE:-20}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # HTTPS in front of the plan view: a certificate from Let's Encrypt for SETUHAUL_DOMAIN, renewed automatically.
+  caddy:
+    image: caddy:2.8.4-alpine
+    environment:
+      SETUHAUL_DOMAIN: ${SETUHAUL_DOMAIN:?set SETUHAUL_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -15,6 +15,7 @@ import (
 	"github.com/Vikasharista/warehousedockslotplanner/services/core-lib/database/postgres"
 	"github.com/Vikasharista/warehousedockslotplanner/services/core-lib/logger"
 	"github.com/Vikasharista/warehousedockslotplanner/services/dock-api/internal/api"
+	"github.com/Vikasharista/warehousedockslotplanner/services/dock-api/internal/auth"
 	"github.com/Vikasharista/warehousedockslotplanner/services/dock-api/internal/solver"
 	"github.com/Vikasharista/warehousedockslotplanner/services/dock-api/internal/store"
 	"go.uber.org/zap"
@@ -50,12 +51,30 @@ func serve() error {
 		HoldExpiryMin:          v.GetInt("planning.hold_expiry_min"),
 	})
 	sv := solver.New(v.GetString("solver.url"), v.GetDuration("solver.timeout"))
+	au, err := auth.New(st, auth.Settings{
+		Secret:       v.GetString("auth.jwt.secret"),
+		SessionTTL:   v.GetDuration("auth.session_ttl"),
+		SecureCookie: v.GetBool("auth.secure_cookie"),
+	})
+	if err != nil {
+		return err
+	}
+	accounts, err := auth.ParseAccounts(v.GetString("auth.demo_accounts"))
+	if err != nil {
+		return err
+	}
+	if len(accounts) == 0 {
+		log.Warn("no demo accounts configured (APP_AUTH_DEMO_ACCOUNTS): nobody can sign in")
+	}
+	if err := au.EnsureAccounts(context.Background(), accounts); err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go sweep(ctx, st, v.GetDuration("holds.sweep_every"))
 
-	srv := &http.Server{Addr: v.GetString("server.address"), Handler: api.Handler(st, sv),
+	srv := &http.Server{Addr: v.GetString("server.address"), Handler: api.Handler(st, sv, au),
 		ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

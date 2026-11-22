@@ -148,6 +148,9 @@ export class ApiError extends Error {
   }
 }
 
+/** True for a 401: the session is missing or expired. */
+export const isUnauthenticated = (e: unknown) => e instanceof ApiError && e.status === 401;
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -170,7 +173,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export const FACILITY = "FAC-JAI-01";
 const f = `/api/facilities/${FACILITY}`;
 
+export interface Me {
+  email: string;
+  name: string;
+}
+
 export const api = {
+  me: () => call<Me>("/api/auth/me"),
+  login: (email: string, password: string) =>
+    call<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  logout: () => call<void>("/api/auth/logout", { method: "POST" }),
   clock: () => call<{ now: string }>("/api/clock"),
   board: () => call<Board>(`${f}/board`),
   exceptions: () => call<Exception[]>(`${f}/exceptions`),

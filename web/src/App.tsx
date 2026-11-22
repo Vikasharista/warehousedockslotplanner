@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Board, type Booking, type Change, type Exception, type RunSummary } from "./api";
+import { api, isUnauthenticated, type Board, type Booking, type Change, type Exception, type Me, type RunSummary } from "./api";
 import { Changes, Details, Exceptions, Holds, Runs } from "./Panels";
 import { Timeline } from "./Timeline";
 import { clock, clockSeconds, date, relative } from "./time";
@@ -7,7 +7,7 @@ import { clock, clockSeconds, date, relative } from "./time";
 const POLL_MS = 10_000;
 type Tab = "exceptions" | "changes" | "runs" | "holds";
 
-export function App() {
+export function App({ me, onSignOut, onSessionExpired }: { me: Me; onSignOut: () => void; onSessionExpired: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [exceptions, setExceptions] = useState<Exception[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
@@ -34,9 +34,13 @@ export function App() {
       setClockBase({ server: Date.parse(b.now), local: Date.now() });
       setError(null);
     } catch (err) {
+      if (isUnauthenticated(err)) {
+        onSessionExpired();
+        return;
+      }
       setError((err as Error).message);
     }
-  }, []);
+  }, [onSessionExpired]);
 
   useEffect(() => {
     refresh();
@@ -133,6 +137,12 @@ export function App() {
             {replanning ? "Re-planning…" : "Re-plan now"}
           </button>
           {replanNote && <span className="note">{replanNote}</span>}
+          <span className="user" title={me.email}>
+            {me.name}
+          </span>
+          <button className="link" onClick={onSignOut}>
+            Sign out
+          </button>
         </div>
       </header>
 

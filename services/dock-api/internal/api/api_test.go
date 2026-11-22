@@ -89,7 +89,7 @@ func do(t *testing.T, h http.Handler, method, path, body string) (int, map[strin
 
 func TestReadRoutes(t *testing.T) {
 	st, sv := &fakeStore{}, &fakeSolver{}
-	h := Handler(st, sv)
+	h := Handler(st, sv, allowAll{})
 	code, body, _ := do(t, h, "GET", "/api/health", "")
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "UP", body["status"])
@@ -114,7 +114,7 @@ func TestReadRoutes(t *testing.T) {
 }
 
 func TestInputValidation(t *testing.T) {
-	h := Handler(&fakeStore{}, &fakeSolver{})
+	h := Handler(&fakeStore{}, &fakeSolver{}, allowAll{})
 	cases := map[string][2]string{
 		"unknown facility":  {"GET", "/api/facilities/FAC-2/board"},
 		"bad facility id":   {"GET", "/api/facilities/bad%20id/board"},
@@ -139,7 +139,7 @@ func TestInputValidation(t *testing.T) {
 
 func TestHolds(t *testing.T) {
 	st := &fakeStore{}
-	h := Handler(st, &fakeSolver{})
+	h := Handler(st, &fakeSolver{}, allowAll{})
 	code, body, _ := do(t, h, "POST", "/api/holds", `{"shipmentId":"SHP1","slotId":"S1"}`)
 	assert.Equal(t, 201, code)
 	assert.Equal(t, "H1", body["appointmentId"])
@@ -173,7 +173,7 @@ func TestErrorsMapToStatusesAndHideInternals(t *testing.T) {
 		"internal":    {stderrors.New("pq: password authentication failed"), 500},
 	}
 	for name, c := range cases {
-		h := Handler(&fakeStore{err: c.err}, &fakeSolver{})
+		h := Handler(&fakeStore{err: c.err}, &fakeSolver{}, allowAll{})
 		code, body, raw := do(t, h, "POST", "/api/holds/H1/confirm", "")
 		assert.Equal(t, c.status, code, name)
 		if c.status == 500 {
@@ -183,20 +183,20 @@ func TestErrorsMapToStatusesAndHideInternals(t *testing.T) {
 			assert.Equal(t, c.err.Error(), body["error"], name)
 		}
 	}
-	h := Handler(&fakeStore{err: stderrors.New("db down")}, &fakeSolver{})
+	h := Handler(&fakeStore{err: stderrors.New("db down")}, &fakeSolver{}, allowAll{})
 	code, _, _ := do(t, h, "GET", "/api/clock", "")
 	assert.Equal(t, 500, code)
 }
 
 func TestReplanIsProxiedToTheSolver(t *testing.T) {
 	sv := &fakeSolver{}
-	h := Handler(&fakeStore{}, sv)
+	h := Handler(&fakeStore{}, sv, allowAll{})
 	code, body, _ := do(t, h, "POST", "/api/facilities/FAC-1/replan", "")
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "COMMITTED", body["status"])
 	assert.Equal(t, "FAC-1", sv.called)
 
-	h = Handler(&fakeStore{}, &fakeSolver{err: stderrors.New("connection refused")})
+	h = Handler(&fakeStore{}, &fakeSolver{err: stderrors.New("connection refused")}, allowAll{})
 	code, body, _ = do(t, h, "POST", "/api/facilities/FAC-1/replan", "")
 	assert.Equal(t, 502, code)
 	assert.Equal(t, "SOLVER_UNAVAILABLE", body["code"])
@@ -205,7 +205,7 @@ func TestReplanIsProxiedToTheSolver(t *testing.T) {
 
 func TestTruckRequests(t *testing.T) {
 	st := &fakeStore{}
-	h := Handler(st, &fakeSolver{})
+	h := Handler(st, &fakeSolver{}, allowAll{})
 	code, body, _ := do(t, h, "POST", "/api/facilities/FAC-1/truck-requests", `{"trucks":10}`)
 	assert.Equal(t, 202, code)
 	assert.EqualValues(t, 7, body["jobId"])
@@ -221,4 +221,70 @@ func TestTruckRequests(t *testing.T) {
 	assert.Equal(t, "DONE", body["status"])
 	code, _, _ = do(t, h, "GET", "/api/truck-requests/x", "")
 	assert.Equal(t, 400, code)
+}
+
+// allowAll lets every request through, for the route tests.
+type allowAll struct{}
+
+func (allowAll) Login(_ context.Context, email, password, _ string) (*store.User, string, error) {
+	if password != "right-password" {
+		return nil, "", errors.NewUnauthenticatedError("wrong email or password")
+	}
+	return &store.User{Email: email, DisplayName: "demo"}, "tok", nil
+}
+func (allowAll) Authenticate(r *http.Request) (context.Context, error) { return r.Context(), nil }
+func (allowAll) Claims(*http.Request) (string, string)                 { return "demo@x.io", "demo" }
+func (allowAll) SessionCookie(token string) *http.Cookie {
+	return &http.Cookie{Name: "setuhaul_session", Value: token}
+}
+
+// denyAll refuses every session.
+type denyAll struct{ allowAll }
+
+func (denyAll) Authenticate(*http.Request) (context.Context, error) {
+	return nil, errors.NewUnauthenticatedError("sign in first")
+}
+
+func TestEveryRouteButHealthAndLoginNeedsASession(t *testing.T) {
+	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{})
+	for _, path := range []string{"/api/clock", "/api/facilities/FAC-1/board", "/api/shipments/S/options",
+		"/api/holds/H1", "/api/auth/me"} {
+		code, body, _ := do(t, h, "GET", path, "")
+		assert.Equal(t, 401, code, path)
+		assert.Equal(t, "UNAUTHENTICATED", body["code"], path)
+	}
+	code, _, _ := do(t, h, "POST", "/api/holds", `{"shipmentId":"S","slotId":"X"}`)
+	assert.Equal(t, 401, code)
+	code, _, _ = do(t, h, "GET", "/api/health", "")
+	assert.Equal(t, 200, code)
+	code, _, _ = do(t, h, "POST", "/api/auth/logout", "")
+	assert.Equal(t, 204, code)
+}
+
+func TestLoginSetsTheSessionCookie(t *testing.T) {
+	h := Handler(&fakeStore{}, &fakeSolver{}, denyAll{})
+	req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"email":"demo@x.io","password":"right-password"}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, 200, rec.Code)
+	assert.Contains(t, rec.Header().Get("Set-Cookie"), "setuhaul_session=tok")
+	assert.Contains(t, rec.Body.String(), `"email":"demo@x.io"`)
+
+	code, body, _ := do(t, h, "POST", "/api/auth/login", `{"email":"demo@x.io","password":"wrong"}`)
+	assert.Equal(t, 401, code)
+	assert.Equal(t, "wrong email or password", body["error"])
+	code, _, _ = do(t, h, "POST", "/api/auth/login", `{"email":"demo@x.io"`)
+	assert.Equal(t, 400, code)
+
+	code, body, _ = do(t, Handler(&fakeStore{}, &fakeSolver{}, allowAll{}), "GET", "/api/auth/me", "")
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "demo@x.io", body["email"])
+}
+
+func TestClientKeyPrefersTheProxyHeader(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.9:5555"
+	assert.Equal(t, "10.0.0.9", clientKey(r))
+	r.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.2")
+	assert.Equal(t, "203.0.113.7", clientKey(r))
 }

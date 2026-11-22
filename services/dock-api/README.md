@@ -14,6 +14,21 @@ go run . serve        # config/default.yaml; override any key with APP_*, e.g. A
 Defaults: listens on 127.0.0.1:8082, Postgres on localhost:55432, solver on localhost:8081. In Docker Compose it
 listens on :8082 inside its container and is published on 127.0.0.1 only. There is no login yet: keep it local.
 
+## Sign-in
+
+Every `/api` route needs a session except `/api/health`, `/api/auth/login` and `/api/auth/logout`.
+- `POST /api/auth/login` `{"email","password"}` checks a demo account and sets the `setuhaul_session` cookie. The
+  cookie is HttpOnly, SameSite=Strict, and Secure when `auth.secure_cookie` is on; it holds an HS256 JWT verified
+  with core-lib's `authdirective.Verify`.
+- `GET /api/auth/me` returns the signed-in user, and `POST /api/auth/logout` clears the cookie.
+- API clients may send the token as `Authorization: Bearer …`.
+- Wrong email and wrong password give the same 401. Five failures per email or per client address within 15 minutes
+  give 429.
+
+Accounts come from `APP_AUTH_DEMO_ACCOUNTS` (`email:password` pairs separated by commas, passwords at least 10
+characters). They are created or updated at start, with only a bcrypt hash stored in `app_users`.
+`APP_AUTH_JWT_SECRET` (at least 32 characters) signs the sessions; dock-api refuses to start without it.
+
 ## API
 
 | Route | Result |

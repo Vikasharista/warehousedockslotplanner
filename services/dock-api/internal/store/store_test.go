@@ -316,3 +316,18 @@ func TestARequestNotMadeYetHasNoOptions(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, opts)
 }
+
+func TestUsers(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	require.NoError(t, s.UpsertUser(ctx, " Demo@SetuHaul.io ", "demo", "hash-1"))
+	require.NoError(t, s.UpsertUser(ctx, "demo@setuhaul.io", "demo", "hash-2"))
+	u, err := s.UserByEmail(ctx, "DEMO@setuhaul.io")
+	require.NoError(t, err)
+	assert.Equal(t, "hash-2", u.PasswordHash)
+	require.NoError(t, s.TouchLogin(ctx, u.UserID))
+	u, _ = s.UserByEmail(ctx, "demo@setuhaul.io")
+	assert.NotNil(t, u.LastLoginAt)
+	_, err = s.UserByEmail(ctx, "nobody@setuhaul.io")
+	assert.Equal(t, errors.RecordNotFoundErrorCode, code(err))
+}

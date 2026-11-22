@@ -17,7 +17,8 @@ cd warehousedockslotplanner
 docker compose up --build
 ```
 
-Then open **http://localhost:5173**. The first build downloads the Maven, Go, npm and Python dependencies and takes
+Then open **http://localhost:5173** and sign in with the local demo account **demo@setuhaul.local** /
+**setuhaul-demo-2026** (local only). The first build downloads the Maven, Go, npm and Python dependencies and takes
 a few minutes; later starts are quick. What starts:
 
 | Service | Port (localhost only) | What it does |
@@ -35,8 +36,10 @@ the docks and leaves some trucks for a coordinator. "Add requests" in the plan v
 `SETUHAUL_SCENARIO_TRUCKS=0 docker compose up --build` on the first start gives the snapshot alone (see
 `jobs/README.md`).
 
-`docker compose down -v` throws the data away; the next `up` starts again from the snapshot at 09:55. The stack has
-no login: keep it on your own machine.
+`docker compose down -v` throws the data away; the next `up` starts again from the snapshot at 09:55.
+
+**Deploying for reviewers:** [docs/deploy.md](docs/deploy.md) covers any Linux VM. It adds HTTPS, the demo accounts
+you choose, and a nightly reset to the start of the demo day.
 
 ![The plan view](docs/plan-view.png)
 
