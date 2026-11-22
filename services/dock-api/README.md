@@ -46,6 +46,20 @@ characters). They are created or updated at start, with only a bcrypt hash store
 | `GET /api/holds/{id}` | The hold |
 | `POST /api/holds/{id}/confirm` | The hold becomes the truck's CONFIRMED booking; 409 `HOLD_EXPIRED` after 15 minutes |
 | `POST /api/holds/{id}/release` | The hold is cancelled |
+| `GET /api/facilities/{id}/shipments` | Open trucks known as of the shared clock, with ETA, gate-in, current slot and plan status |
+| `POST /api/facilities/{id}/shipments` `{"priorityCode","requiredDockType","loadWeightKg","unloadMin","originCity","eta"}` | A truck request made now (`SHP-M0001`, …, with its own driver and vehicle); the NEW_REQUEST trigger plans it |
+| `PATCH /api/shipments/{id}` `{"priorityCode"?,"requiredDockType"?,"loadWeightKg"?,"unloadMin"?}` | Edits a request; re-plans |
+| `POST /api/shipments/{id}/eta` `{"eta","source","confidence"?,"reason"?,"note"?}` | Records a `DRIVER_DECLARED` ETA or an `OPERATIONS_OVERRIDE` (which re-plans at once) |
+| `POST /api/shipments/{id}/checkin` | Puts the truck at the gate now (EARLY / ON_TIME / LATE at ±30 min of its ETA); 409 if already in. The CHECKIN trigger re-plans |
+| `GET /api/facilities/{id}/capacity` | Docks, dock events from two hours ago on, and slots with the truck booked in each |
+| `POST /api/facilities/{id}/dock-events` `{"dockId","type","start","end"?,"reason"}` | BREAKDOWN, MAINTENANCE, CAPACITY_REDUCTION or MANUAL_BLOCK; re-plans |
+| `PATCH /api/facilities/{id}/docks/{dock}` `{"status"}` | ACTIVE, MAINTENANCE or OUT_OF_SERVICE; re-plans |
+| `POST /api/slots/{id}/status` `{"status","reason"?}` | Blocks (with a reason) or reopens a slot; re-plans |
+| `/api/agent/*` | The driver agent API, with an `X-Agent-Key` or a session: see [docs/agent-api.md](../../docs/agent-api.md) |
+
+Changes marked "re-plans" ask the solver for a MANUAL re-plan in the background (detail such as "dock D1 set to
+OUT_OF_SERVICE") and answer at once; the plan view shows the result within a few seconds. If two changes overlap, a
+run solved on the older data is rejected by the validator or the stale check and the next run commits.
 
 Errors are `{"code", "error"}`: 400 bad input, 404 unknown, 409 conflicts, 500 with no detail for anything else.
 

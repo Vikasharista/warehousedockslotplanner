@@ -14,6 +14,8 @@
 #
 # Sign in at http://localhost:5173 with the local demo account demo@setuhaul.local / setuhaul-demo-2026
 # (local only; a deployment sets its own accounts and secrets, see docs/deploy.md). Ports are bound to 127.0.0.1.
+# Screens: Plan, Shipments, Capacity and a Driver chat test console. A driver agent can call
+# http://localhost:8082/api/agent/... with the header X-Agent-Key: local-agent-key-for-development-only
 services:
   db:
     image: postgres:16.6
@@ -81,7 +83,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # The plan view's API and driver holds.
+  # The plan view's API, driver holds, the input screens and the driver agent API.
   api:
     build:
       context: services
@@ -93,6 +95,8 @@ services:
       # Local development only. docker-compose.deploy.yml replaces both from your .env.
       APP_AUTH_JWT_SECRET: local-development-secret-not-for-deployment
       APP_AUTH_DEMO_ACCOUNTS: ${SETUHAUL_DEMO_ACCOUNTS:-demo@setuhaul.local:setuhaul-demo-2026}
+      # Driver agents send this in X-Agent-Key to /api/agent/* (see docs/agent-api.md). Local key only.
+      APP_AGENT_KEYS: ${SETUHAUL_AGENT_KEYS:-local-agent:local-agent-key-for-development-only}
     ports:
       - "127.0.0.1:8082:8082"
     depends_on:

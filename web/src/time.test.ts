@@ -27,3 +27,12 @@ describe("time helpers", () => {
     expect(minutesBetween("2026-08-04T04:25:00Z", "2026-08-04T05:10:00Z")).toBe(45);
   });
 });
+
+describe("IST form values", () => {
+  it("round-trips a datetime-local value in IST", async () => {
+    const { toIstInput, fromIstInput } = await import("./time");
+    const t = Date.parse("2026-08-04T04:25:00Z");
+    expect(toIstInput(t)).toBe("2026-08-04T09:55");
+    expect(Date.parse(fromIstInput("2026-08-04T09:55"))).toBe(t);
+  });
+});

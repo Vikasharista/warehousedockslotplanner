@@ -32,6 +32,8 @@ services:
       APP_AUTH_JWT_SECRET: ${SETUHAUL_SESSION_SECRET:?set SETUHAUL_SESSION_SECRET in .env}
       APP_AUTH_DEMO_ACCOUNTS: ${SETUHAUL_DEMO_ACCOUNTS:?set SETUHAUL_DEMO_ACCOUNTS in .env}
       APP_AUTH_SECURE_COOKIE: "true"
+      # Empty: no agent keys, the agent API answers only signed-in users (the Driver chat console).
+      APP_AGENT_KEYS: ${SETUHAUL_AGENT_KEYS:-}
 
   web:
     ports: !reset []

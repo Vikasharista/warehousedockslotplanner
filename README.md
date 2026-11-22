@@ -27,14 +27,25 @@ a few minutes; later starts are quick. What starts:
 | `seed` | | Loads the snapshot and starts the shared clock at 4 Aug 2026 09:55 IST, once; later starts keep your data |
 | `gps` | | Simulated GPS on the three lanes and the ETA service, every 30 s |
 | `solver` | 8081 | Plans, validates, commits; re-plans on ETA shifts, check-ins and every 15 minutes |
-| `api` | 8082 | dock-api: the plan view's API and driver holds |
-| `web` | 5173 | The plan view |
+| `api` | 8082 | dock-api: the screens' API, driver holds and the [driver agent API](docs/agent-api.md) |
+| `web` | 5173 | The plan view and the Shipments, Capacity and Driver chat screens |
 
 The first start also loads a **load test**: 70 generated truck requests on top of the snapshot's 20. Fifty are known
 at 09:55 and twenty arrive between 10:00 and 17:00, with delays, a dock breakdown and coordinator cases. That fills
 the docks and leaves some trucks for a coordinator. "Add requests" in the plan view adds more at any time.
 `SETUHAUL_SCENARIO_TRUCKS=0 docker compose up --build` on the first start gives the snapshot alone (see
 `jobs/README.md`).
+
+Screens, across the top of the page:
+
+- **Plan**: the dock sequence, exceptions, change log, runs and driver holds.
+- **Shipments**: every open truck request with its ETA, slot and plan status. Add a request, edit one, record a
+  driver ETA or an operations override, or check a truck in at the gate.
+- **Capacity**: take docks in or out of service, record breakdowns or maintenance, block or reopen single slots.
+- **Driver chat**: a test console that plays a driver and calls the agent API a WhatsApp bot would use (local agent key
+  `local-agent-key-for-development-only`, header `X-Agent-Key`).
+
+Every change re-plans; the plan view shows the result within a few seconds.
 
 `docker compose down -v` throws the data away; the next `up` starts again from the snapshot at 09:55.
 
@@ -53,8 +64,8 @@ you choose, and a nightly reset to the start of the demo day.
 | [`jobs/`](jobs/) | Python jobs: seed loader, data audit, plan validator, GPS simulator and ETA service | Python 3.12+ |
 | [`solver/`](solver/) | The dock-sequencing solver | Java 17+, Maven, Timefold Solver |
 | [`services/`](services/) | [`dock-api`](services/dock-api/): the plan view's API and driver holds (hold, confirm, release). [`core-lib`](services/core-lib/): the Go services' shared library | Go 1.24+ |
-| [`web/`](web/) | The plan view: dock sequence, exceptions, change log, runs, driver holds | React, TypeScript, Vite |
-| [`docs/`](docs/) | Data audit report and other project documents | Markdown |
+| [`web/`](web/) | The plan view (dock sequence, exceptions, change log, runs, driver holds) and the Shipments, Capacity and Driver chat screens | React, TypeScript, Vite |
+| [`docs/`](docs/) | Data audit report, [driver agent API](docs/agent-api.md), [deployment](docs/deploy.md) | Markdown |
 
 Postgres is the runtime database. The SQLite file is kept unchanged as the seed source.
 

@@ -31,6 +31,18 @@ type Store interface {
 	ReleaseHold(ctx context.Context, id string) (*store.Hold, error)
 	FacilityExists(ctx context.Context, facilityID string) (bool, error)
 	QueueTrucks(ctx context.Context, facilityID string, n int) (*store.RequestJob, error)
+	ShipmentsByPhone(ctx context.Context, phone string) ([]store.AgentShipment, error)
+	AgentShipment(ctx context.Context, shipmentID string) (*store.AgentShipment, error)
+	ChangesAfter(ctx context.Context, after int64, limit int) ([]store.FeedChange, int64, error)
+	ReportETA(ctx context.Context, shipmentID string, eta time.Time, source, confidence, reason, note string) (string, error)
+	Shipments(ctx context.Context, facilityID string) ([]store.ShipmentRow, error)
+	CreateShipment(ctx context.Context, facilityID string, in store.NewShipment) (*store.ShipmentRow, error)
+	UpdateShipment(ctx context.Context, shipmentID string, in store.ShipmentEdit) (string, error)
+	CheckIn(ctx context.Context, shipmentID string) error
+	CapacityView(ctx context.Context, facilityID string) (*store.Capacity, error)
+	AddDockEvent(ctx context.Context, facilityID string, in store.NewDockEvent) (string, error)
+	SetSlotStatus(ctx context.Context, slotID, status, reason string) (string, string, error)
+	SetDockStatus(ctx context.Context, facilityID, dockID, status string) (string, error)
 	RequestJob(ctx context.Context, id int64) (*store.RequestJob, error)
 	Now(ctx context.Context) (time.Time, error)
 }
@@ -64,10 +76,12 @@ var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // Open routes need no session; every other /api route does.
 var open = map[string]bool{"/api/health": true, "/api/auth/login": true, "/api/auth/logout": true}
 
-// Handler returns the API's routes behind the session check.
-func Handler(st Store, sv Solver, au Auth) http.Handler {
+// Handler returns the API's routes behind the session check; /api/agent routes also accept an agent key.
+func Handler(st Store, sv Solver, au Auth, keys AgentKeys) http.Handler {
 	h := &handlers{st: st, sv: sv, au: au}
 	mux := http.NewServeMux()
+	h.registerAgent(mux)
+	h.registerInputs(mux)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.HandleFunc("POST /api/auth/logout", h.logout)
 	mux.HandleFunc("GET /api/auth/me", h.me)
@@ -92,7 +106,7 @@ func Handler(st Store, sv Solver, au Auth) http.Handler {
 			mux.ServeHTTP(w, r)
 			return
 		}
-		ctx, err := au.Authenticate(r)
+		ctx, err := agentOrSession(keys, au, r)
 		if err != nil {
 			writeError(w, err)
 			return

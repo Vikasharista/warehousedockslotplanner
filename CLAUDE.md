@@ -46,3 +46,10 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
 - Driver holds belong to dock-api (Go). A truck with a booking holds a second slot beside it (`is_current = 0`) until
   the driver confirms. Holds and solver commits share one per-facility advisory lock
   (`setuhaul.bookings:<facility>`).
+- Driver agents use dock-api's `/api/agent/*` with an `X-Agent-Key` (`APP_AGENT_KEYS`, `name:key`, keys 32+
+  characters); a key opens only those routes, and signed-in users may call them too (the Driver chat console). Agents
+  learn of plan changes by polling a cursor feed (`booking_changes`, written by the commit). A driver's ETA report
+  does not beat GPS: the effective ETA rule stays override, then GPS (later of GPS and driver while an exception is
+  open), then the latest report; the agent tells the driver which ETA the plan uses.
+- Coordinator inputs (new request, edit, ETA override, check-in, dock status, dock events, slot blocks) are dock-api
+  routes behind the Shipments and Capacity screens; each one asks the solver for a MANUAL re-plan in the background.

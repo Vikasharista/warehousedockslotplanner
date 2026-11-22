@@ -178,10 +178,90 @@ export interface Me {
   name: string;
 }
 
+export interface ShipmentRow {
+  shipmentId: string;
+  priorityCode: string;
+  originCity: string;
+  requiredDockType: string;
+  loadWeightKg: number;
+  unloadMin: number;
+  status: string;
+  driverName: string;
+  driverPhone: string;
+  createdAt: string;
+  eta?: string;
+  etaSource?: string;
+  gateIn?: string;
+  dockCode?: string;
+  slotStart?: string;
+  bookingStatus?: string;
+  planStatus?: string;
+  planReason?: string;
+}
+
+export interface NewShipment {
+  priorityCode: string;
+  requiredDockType: string;
+  loadWeightKg: number;
+  unloadMin: number;
+  originCity: string;
+  eta: string;
+}
+
+export interface CapacitySlot {
+  slotId: string;
+  dockId: string;
+  start: string;
+  end: string;
+  status: string;
+  reason?: string;
+  shipmentId?: string;
+}
+
+export interface Capacity {
+  docks: Dock[];
+  events: Block[];
+  slots: CapacitySlot[];
+}
+
+export interface AgentBooking {
+  appointmentId: string;
+  slotId: string;
+  dockCode: string;
+  start: string;
+  end: string;
+  status: string;
+  expiresAt?: string;
+}
+
+export interface AgentShipment {
+  shipmentId: string;
+  driverName: string;
+  driverPhone: string;
+  priorityCode: string;
+  eta?: string;
+  etaSource?: string;
+  gateIn?: string;
+  booking?: AgentBooking;
+  hold?: AgentBooking;
+  planStatus?: string;
+  planReason?: string;
+  message: string;
+}
+
+export interface FeedChange {
+  changeId: number;
+  shipmentId: string;
+  action: string;
+  message: string;
+  changedAt: string;
+}
+
+const json = (v: unknown) => JSON.stringify(v);
+
 export const api = {
   me: () => call<Me>("/api/auth/me"),
-  login: (email: string, password: string) =>
-    call<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (email: string, password: string) => call<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => call<void>("/api/auth/logout", { method: "POST" }),
   clock: () => call<{ now: string }>("/api/clock"),
   board: () => call<Board>(`${f}/board`),
@@ -189,12 +269,42 @@ export const api = {
   changes: (limit = 60) => call<Change[]>(`${f}/changes?limit=${limit}`),
   runs: (limit = 30) => call<RunSummary[]>(`${f}/runs?limit=${limit}`),
   replan: () => call<ReplanResult>(`${f}/replan`, { method: "POST" }),
-  addTrucks: (trucks: number) =>
-    call<RequestJob>(`${f}/truck-requests`, { method: "POST", body: JSON.stringify({ trucks }) }),
+  addTrucks: (trucks: number) => call<RequestJob>(`${f}/truck-requests`, { method: "POST", body: JSON.stringify({ trucks }) }),
   requestJob: (id: number) => call<RequestJob>(`/api/truck-requests/${id}`),
+
+  shipments: () => call<ShipmentRow[]>(`${f}/shipments`),
+  createShipment: (s: NewShipment) => call<ShipmentRow>(`${f}/shipments`, { method: "POST", body: json(s) }),
+  editShipment: (id: string, edit: Partial<Pick<ShipmentRow, "priorityCode" | "requiredDockType" | "loadWeightKg" | "unloadMin">>) =>
+    call<unknown>(`/api/shipments/${encodeURIComponent(id)}`, { method: "PATCH", body: json(edit) }),
+  setEta: (id: string, eta: string, source: string, reason?: string) =>
+    call<AgentShipment>(`/api/shipments/${encodeURIComponent(id)}/eta`, {
+      method: "POST",
+      body: json({ eta, source, confidence: "HIGH", reason: reason || undefined }),
+    }),
+  checkIn: (id: string) => call<AgentShipment>(`/api/shipments/${encodeURIComponent(id)}/checkin`, { method: "POST" }),
+  capacity: () => call<Capacity>(`${f}/capacity`),
+  addDockEvent: (e: { dockId: string; type: string; start: string; end?: string; reason: string }) =>
+    call<unknown>(`${f}/dock-events`, { method: "POST", body: json(e) }),
+  setDockStatus: (dockId: string, status: string) =>
+    call<unknown>(`${f}/docks/${encodeURIComponent(dockId)}`, { method: "PATCH", body: json({ status }) }),
+  setSlotStatus: (slotId: string, status: string, reason?: string) =>
+    call<unknown>(`/api/slots/${encodeURIComponent(slotId)}/status`, { method: "POST", body: json({ status, reason }) }),
+
+  // What the WhatsApp driver agent calls (the driver chat console uses the same routes).
+  agent: {
+    byPhone: (phone: string) => call<AgentShipment[]>(`/api/agent/drivers/${encodeURIComponent(phone)}/shipments`),
+    shipment: (id: string) => call<AgentShipment>(`/api/agent/shipments/${encodeURIComponent(id)}`),
+    options: (id: string) => call<SlotOption[]>(`/api/agent/shipments/${encodeURIComponent(id)}/options?limit=4`),
+    reportEta: (id: string, eta: string, reason: string) =>
+      call<AgentShipment>(`/api/agent/shipments/${encodeURIComponent(id)}/eta`, { method: "POST", body: json({ eta, reason }) }),
+    hold: (shipmentId: string, slotId: string) => call<Hold>("/api/agent/holds", { method: "POST", body: json({ shipmentId, slotId }) }),
+    confirm: (id: string) => call<Hold>(`/api/agent/holds/${encodeURIComponent(id)}/confirm`, { method: "POST" }),
+    release: (id: string) => call<Hold>(`/api/agent/holds/${encodeURIComponent(id)}/release`, { method: "POST" }),
+    changes: (after: number, limit = 100) =>
+      call<{ changes: FeedChange[]; next: number; last: number }>(`/api/agent/changes?after=${after}&limit=${limit}`),
+  },
   options: (shipmentId: string) => call<SlotOption[]>(`/api/shipments/${encodeURIComponent(shipmentId)}/options?limit=8`),
-  hold: (shipmentId: string, slotId: string) =>
-    call<Hold>("/api/holds", { method: "POST", body: JSON.stringify({ shipmentId, slotId }) }),
+  hold: (shipmentId: string, slotId: string) => call<Hold>("/api/holds", { method: "POST", body: JSON.stringify({ shipmentId, slotId }) }),
   confirm: (id: string) => call<Hold>(`/api/holds/${encodeURIComponent(id)}/confirm`, { method: "POST" }),
   release: (id: string) => call<Hold>(`/api/holds/${encodeURIComponent(id)}/release`, { method: "POST" }),
 };

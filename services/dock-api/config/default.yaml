@@ -37,3 +37,8 @@ auth:
   session_ttl: 12h
   # true when the site is served over HTTPS (deployment); false for http://localhost
   secure_cookie: false
+
+# Driver agents call /api/agent/* with an X-Agent-Key header. Set APP_AGENT_KEYS in the environment:
+# "name:key" entries separated by commas, keys at least 32 characters (openssl rand -hex 32).
+agent:
+  keys: ""

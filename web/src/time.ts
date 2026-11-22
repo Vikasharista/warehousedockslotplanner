@@ -36,5 +36,14 @@ export function relative(t: number, now: number): string {
   return min > 0 ? `in ${min} min` : `${-min} min ago`;
 }
 
+/** "YYYY-MM-DDTHH:mm" in IST, for a datetime-local input. */
+export function toIstInput(t: number): string {
+  const ist = new Date(t + 330 * 60_000);
+  return ist.toISOString().slice(0, 16);
+}
+
+/** A datetime-local value read as IST, as an RFC 3339 time. */
+export const fromIstInput = (v: string) => `${v}:00+05:30`;
+
 /** Minutes between two instants, rounded. */
 export const minutesBetween = (a: string, b: string) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60_000);
