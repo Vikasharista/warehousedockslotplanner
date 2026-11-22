@@ -1,0 +1,6 @@
+[
+{"facilityId":"FAC-JAI-01","method":"SOLVER","feasible":true,"score":"[0]hard/[-48/-14/-3/-18992]soft","planMs":4401,"trucks":62,"assigned":48,"unassigned":14,"avgWaitMin":109.8,"weightedWaitMin":69.9,"priorityInversions":5,"pickupInversions":3,"forcedMoves":9,"unforcedMoves":0,"dockUtilisationPct":85.7},
+{"facilityId":"FAC-JAI-01","method":"SOLVER_COLD_START","feasible":true,"score":"[0]hard/[-48/0/0/-16352]soft","planMs":3651,"trucks":62,"assigned":48,"unassigned":14,"avgWaitMin":107.3,"weightedWaitMin":60.0,"priorityInversions":0,"pickupInversions":0,"forcedMoves":9,"unforcedMoves":0,"dockUtilisationPct":85.6},
+{"facilityId":"FAC-JAI-01","method":"FCFS","feasible":true,"score":"[0]hard/[-67/-906/0/-42852]soft","planMs":1,"trucks":62,"assigned":45,"unassigned":17,"avgWaitMin":174.8,"weightedWaitMin":171.0,"priorityInversions":99,"pickupInversions":0,"forcedMoves":9,"unforcedMoves":0,"dockUtilisationPct":81.1},
+{"facilityId":"FAC-JAI-01","method":"PRIORITY_FIRST","feasible":true,"score":"[0]hard/[-54/0/0/-17376]soft","planMs":0,"trucks":62,"assigned":46,"unassigned":16,"avgWaitMin":123.7,"weightedWaitMin":65.3,"priorityInversions":0,"pickupInversions":0,"forcedMoves":9,"unforcedMoves":0,"dockUtilisationPct":82.0}
+]

@@ -114,6 +114,33 @@ java -jar core/target/dock-solver.jar \
   --facility FAC-JAI-01 --as-of 2026-08-04T09:55:00+05:30 [--config site.properties] [--seconds 10]
 ```
 
+## Search start and early trucks (phase 6)
+
+- `warm_start=PRIORITY_FIRST` (default): before the search, the open trucks are placed by the priority-first rule
+  (highest priority first, each on its earliest free slot), so a plan is never worse than that rule on the score.
+  `NONE` starts from an empty plan, as before phase 6. Chosen after the baseline and stress comparisons
+  ([docs/results/phase6](../docs/results/phase6/)): from an empty plan, the 10 s search left avoidable priority
+  inversions on the 70-truck day and fell behind the simple rule at 165 trucks per facility.
+- `early_release_min=30`: a confirmed truck whose effective ETA is 30+ minutes earlier than the ETA its slot was
+  planned on is released (forced move, `ARRIVING_EARLY`); it takes a free earlier slot or keeps its own. No other
+  booking moves for it. Keep it equal to the ETA trigger (`setuhaul.triggers.eta-shift-min`).
+- A driver's side hold blocks the dock for the held truck's whole unload, not only its slot; the commit's stale check
+  also refuses a new allocation that a hold made since solving runs into.
+
+## Baselines, scale and stress
+
+```bash
+J=core/target/dock-solver.jar; URL='jdbc:postgresql://localhost:55432/setuhaul?user=postgres&password=postgres'
+# The solver, the same search from an empty plan, first come first served and priority first, on the same data:
+java -cp $J com.setuhaul.solver.cli.Compare --jdbc-url "$URL" --as-of 2026-08-04T09:55:00+05:30 [--facility 'FAC-SCL-*']
+# Each facility planned on its own; exit 1 if any is not feasible within --limit-seconds (60):
+java -cp $J com.setuhaul.solver.cli.Scale --jdbc-url "$URL" --as-of 2026-08-04T09:55:00+05:30 --facility 'FAC-SCL-*'
+```
+
+`scripts/break-and-defend.sh` builds throwaway databases (snapshot, 70-truck day, 240-shipment scale set, 1,000-truck
+stress set) and writes every table to `docs/results/phase6/`. `ScaleIT` runs the scale test as a test when
+`SETUHAUL_SCALE_JDBC_URL` points at a database built with `python -m setuhaul_jobs.scale`.
+
 ## Model
 
 | Piece | Class | What it is |

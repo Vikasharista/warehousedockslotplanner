@@ -455,43 +455,53 @@ class CommitIT {
     @Order(10)
     void aHoldMadeWhileSolvingWhoseUnloadRunsIntoANewAllocationMakesTheRunStale() throws Exception {
         clock("2026-08-04T12:30:00+05:30");
+        // Free one booked truck, so this run makes a NEW allocation for it.
+        String freed = (String) query("""
+                SELECT a.shipment_id FROM appointments a
+                JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+                JOIN docks d ON d.dock_id = sl.dock_id AND d.dock_type = 'STANDARD'
+                JOIN shipments s ON s.shipment_id = a.shipment_id
+                LEFT JOIN facility_checkins fc ON fc.shipment_id = a.shipment_id AND fc.gate_in_ts IS NOT NULL
+                WHERE a.is_current = 1 AND a.appointment_status = 'CONFIRMED' AND fc.shipment_id IS NULL
+                  AND sl.slot_start_ts > setuhaul_now() + interval '2 hours' AND s.load_weight_kg <= d.max_vehicle_weight_kg
+                ORDER BY sl.slot_start_ts DESC, a.shipment_id LIMIT 1""").get(0).get("shipment_id");
+        exec("UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0 WHERE shipment_id = '" + freed
+                + "' AND is_current = 1");
         String runId = solve("2026-08-04T12:30:00+05:30");
-        // A new or moved allocation with a free slot just before it on the same dock.
-        List<Map<String, Object>> pick = query("""
-                SELECT i.shipment_id, i.slot_id, prev.slot_id AS prev_slot
-                FROM solver_plan_item i
-                JOIN appointment_slots sl ON sl.slot_id = i.slot_id
-                JOIN appointment_slots prev ON prev.dock_id = sl.dock_id AND prev.slot_end_ts = sl.slot_start_ts
-                WHERE i.run_id = ? AND i.booking_action IN ('NEW', 'MOVED') AND prev.slot_status = 'OPEN'
-                  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = prev.slot_id
+        Map<String, Object> item = query("""
+                SELECT i.shipment_id, i.slot_id, i.dock_id, i.planned_start_ts FROM solver_plan_item i
+                WHERE i.run_id = ? AND i.booking_action = 'NEW' ORDER BY i.planned_start_ts LIMIT 1""", runId).get(0);
+        // An earlier free slot on that dock, used by nobody in the run.
+        Map<String, Object> earlier = query("""
+                SELECT sl.slot_id, round(EXTRACT(EPOCH FROM ?::timestamptz - sl.slot_start_ts) / 60)::int AS gap
+                FROM appointment_slots sl
+                WHERE sl.dock_id = ? AND sl.slot_status = 'OPEN' AND sl.slot_start_ts < ?
+                  AND sl.slot_start_ts > setuhaul_now()
+                  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = sl.slot_id
                                   AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
-                  AND NOT EXISTS (SELECT 1 FROM solver_plan_item j WHERE j.run_id = i.run_id AND j.slot_id = prev.slot_id)
-                ORDER BY i.planned_start_ts LIMIT 1
-                """, runId);
-        if (pick.isEmpty()) {
-            // Every new allocation already has a busy neighbour: nothing to race against in this run.
-            return;
-        }
-        String target = (String) pick.get(0).get("shipment_id");
-        String prev = (String) pick.get(0).get("prev_slot");
-        // A driver holds the slot before it, for a truck the run does not touch, with a 75-minute unload.
+                  AND NOT EXISTS (SELECT 1 FROM solver_plan_item j WHERE j.run_id = ? AND j.slot_id = sl.slot_id)
+                ORDER BY sl.slot_start_ts DESC LIMIT 1""",
+                item.get("planned_start_ts"), item.get("dock_id"), item.get("planned_start_ts"), runId).get(0);
+        // A driver the run leaves unassigned holds it (no planned times depend on its unload), with an unload that
+        // runs 15 minutes into the new allocation.
         String holder = (String) query("""
-                SELECT s.shipment_id FROM shipments s
-                WHERE s.destination_facility_id = 'FAC-JAI-01' AND s.current_status NOT IN ('COMPLETED', 'CANCELLED')
-                  AND s.shipment_id NOT IN (SELECT shipment_id FROM solver_plan_item WHERE run_id = ?)
-                  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.shipment_id = s.shipment_id
-                                  AND a.appointment_status = 'PENDING_CONFIRMATION')
-                ORDER BY s.shipment_id LIMIT 1""", runId).get(0).get("shipment_id");
-        exec("UPDATE shipments SET expected_unload_min = 75 WHERE shipment_id = '" + holder + "'");
+                SELECT i.shipment_id FROM solver_plan_item i
+                WHERE i.run_id = ? AND i.allocation_status = 'UNASSIGNED'
+                  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.shipment_id = i.shipment_id
+                                  AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+                ORDER BY i.shipment_id LIMIT 1""", runId).get(0).get("shipment_id");
+        int unload = ((Number) earlier.get("gap")).intValue() + 15;
+        exec("UPDATE shipments SET expected_unload_min = " + unload + " WHERE shipment_id = '" + holder + "'");
         exec("""
                 INSERT INTO appointments (appointment_id, shipment_id, slot_id, appointment_status, booking_source,
                     is_current, booked_at, updated_at)
                 VALUES ('APT-IT-LONG', '%s', '%s', 'PENDING_CONFIRMATION', 'DRIVER_CHAT', 0, setuhaul_now(), setuhaul_now())
-                """.formatted(holder, prev));
+                """.formatted(holder, earlier.get("slot_id")));
         try {
             given().when().post("/runs/" + runId + "/commit").then().statusCode(200)
                     .body("status", equalTo("REJECTED"))
-                    .body("outcome", org.hamcrest.Matchers.containsString(target + " overlaps the booking of " + holder));
+                    .body("outcome", org.hamcrest.Matchers.containsString(
+                            item.get("shipment_id") + " overlaps the booking of " + holder));
         } finally {
             exec("DELETE FROM appointments WHERE appointment_id = 'APT-IT-LONG'");
         }

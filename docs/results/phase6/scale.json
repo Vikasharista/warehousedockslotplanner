@@ -1,0 +1,8 @@
+[
+{"facilityId":"FAC-SCL-01","docks":6,"slots":73,"trucks":37,"loadMs":95,"solveMs":2356,"firstFeasibleMs":128,"bestMs":346,"feasible":true,"score":"[0]hard/[-15/0/0/-5471]soft","assigned":30,"unassigned":7,"weightedWaitMin":32.2,"priorityInversions":0,"dockUtilisationPct":50.1},
+{"facilityId":"FAC-SCL-02","docks":6,"slots":73,"trucks":38,"loadMs":22,"solveMs":3030,"firstFeasibleMs":25,"bestMs":1026,"feasible":true,"score":"[0]hard/[-44/-2/0/-5692]soft","assigned":32,"unassigned":6,"weightedWaitMin":27.9,"priorityInversions":1,"dockUtilisationPct":52.6},
+{"facilityId":"FAC-SCL-03","docks":5,"slots":60,"trucks":38,"loadMs":13,"solveMs":2968,"firstFeasibleMs":20,"bestMs":965,"feasible":true,"score":"[0]hard/[-16/-24/0/-7541]soft","assigned":30,"unassigned":8,"weightedWaitMin":42.8,"priorityInversions":2,"dockUtilisationPct":58.9},
+{"facilityId":"FAC-SCL-04","docks":5,"slots":60,"trucks":38,"loadMs":10,"solveMs":2490,"firstFeasibleMs":11,"bestMs":487,"feasible":true,"score":"[0]hard/[-37/-2/0/-6144]soft","assigned":33,"unassigned":5,"weightedWaitMin":32.5,"priorityInversions":1,"dockUtilisationPct":62.2},
+{"facilityId":"FAC-SCL-05","docks":5,"slots":60,"trucks":37,"loadMs":10,"solveMs":2019,"firstFeasibleMs":11,"bestMs":17,"feasible":true,"score":"[0]hard/[-41/0/0/-5515]soft","assigned":30,"unassigned":7,"weightedWaitMin":40.0,"priorityInversions":0,"dockUtilisationPct":59.6},
+{"facilityId":"FAC-SCL-06","docks":5,"slots":60,"trucks":38,"loadMs":7,"solveMs":3635,"firstFeasibleMs":9,"bestMs":1633,"feasible":true,"score":"[0]hard/[-6/-26/0/-8233]soft","assigned":34,"unassigned":4,"weightedWaitMin":36.4,"priorityInversions":1,"dockUtilisationPct":66.9}
+]

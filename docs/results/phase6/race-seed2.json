@@ -1,0 +1,96 @@
+{
+  "seconds": 60,
+  "drivers": 8,
+  "burstSize": 6,
+  "actions": {
+    "block 200": 19,
+    "burst 3 drivers, 0 winner(s)": 2,
+    "burst 3 drivers, 1 winner(s)": 1,
+    "burst 4 drivers, 0 winner(s)": 1,
+    "burst 5 drivers, 1 winner(s)": 1,
+    "burst skipped: no slot free for two trucks": 23,
+    "confirm 200": 217,
+    "final replan 200 COMMITTED": 1,
+    "hold 201": 368,
+    "hold 409 HOLD_CONFLICT": 104,
+    "hold 409 SLOT_UNAVAILABLE": 34,
+    "options none": 7152,
+    "release 200": 151,
+    "reopen 200": 19,
+    "replan 200 COMMITTED": 1,
+    "replan 200 REJECTED": 3
+  },
+  "runs": {
+    "COMMITTED": 25,
+    "REJECTED": 29
+  },
+  "rejectedBecause": {
+    "STALE": 16,
+    "INVALID: V6": 13
+  },
+  "bursts": [
+    {
+      "slot": "SLOT-JAI-047",
+      "drivers": 3,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 SLOT_UNAVAILABLE",
+        "409 SLOT_UNAVAILABLE"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-063",
+      "drivers": 3,
+      "winners": 1,
+      "outcomes": [
+        "201",
+        "409 SLOT_UNAVAILABLE",
+        "409 SLOT_UNAVAILABLE"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-009",
+      "drivers": 5,
+      "winners": 1,
+      "outcomes": [
+        "201",
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
+        "409 SLOT_UNAVAILABLE",
+        "409 SLOT_UNAVAILABLE"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-049",
+      "drivers": 3,
+      "winners": 0,
+      "outcomes": [
+        "409 SLOT_UNAVAILABLE",
+        "409 SLOT_UNAVAILABLE",
+        "409 SLOT_UNAVAILABLE"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-035",
+      "drivers": 4,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
+        "409 SLOT_UNAVAILABLE",
+        "409 SLOT_UNAVAILABLE"
+      ]
+    }
+  ],
+  "invariants": {
+    "I1 no slot has two active bookings": "pass",
+    "I2 no truck has two current active bookings": "pass",
+    "I3 no two active bookings overlap on a dock": "pass",
+    "I4 every committed run passed the validator": "pass",
+    "I5 every rejected run says why": "pass",
+    "I6 every same-slot burst had at most one winner": "pass",
+    "I7 no request failed with a server error (5xx)": "pass"
+  },
+  "passed": true
+}

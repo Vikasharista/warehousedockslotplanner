@@ -124,6 +124,20 @@ before the truck can be there, recomputed from the snapshot with the run's own b
 not blocked, closed or past its last start (V6), times match the slot and unload length (V7), run header matches
 its items (V8). Exit code 0 = valid, 1 = violations, 2 = run not found or database error.
 
+## Scale data and the race harness (phase 6)
+
+```bash
+# A separate database for the scale test: 6 facilities shaped like Jaipur, 32 docks, 240 generated requests.
+../.venv/bin/python -m setuhaul_jobs.scale --database-url postgresql://.../setuhaul_scale [--docks 120 --shipments 1000]
+
+# Against the running stack (docker compose up): drivers, the solver and a coordinator change bookings at once for
+# 60 s, then invariants I1-I7 are checked (no double booking, no dock overlap, committed runs valid, ...).
+../.venv/bin/python -m setuhaul_jobs.race --database-url postgresql://postgres:postgres@localhost:55432/setuhaul
+../.venv/bin/python -m setuhaul_jobs.race --database-url ... --seconds 15 --drivers 3      # CI-sized
+```
+
+The race harness changes the database it runs against: use the local demo stack, never a deployment.
+
 ## Tests
 
 ```bash
