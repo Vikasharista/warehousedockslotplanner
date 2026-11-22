@@ -40,6 +40,10 @@ services:
 
   # Simulated GPS on the three lanes, plus the ETA service, every 30 seconds of real time.
   gps:
+    # Same image as seed. It needs its own build section, or Compose tries to pull it from Docker Hub.
+    build:
+      context: .
+      dockerfile: jobs/Dockerfile
     image: setuhaul/jobs:local
     command: ["python", "-m", "setuhaul_jobs.gps.live", "--every-seconds", "30"]
     environment:
