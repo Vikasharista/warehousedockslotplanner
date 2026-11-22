@@ -54,7 +54,7 @@ public final class DryRun {
         System.out.print(PlanReport.render(load, solved));
     }
 
-    private static Map<String, String> parse(String[] args) {
+    static Map<String, String> parse(String[] args) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < args.length; i++) {
             if (!args[i].startsWith("--")) {

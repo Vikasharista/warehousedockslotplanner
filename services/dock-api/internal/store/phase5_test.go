@@ -238,3 +238,22 @@ func TestCapacityChanges(t *testing.T) {
 	_, err = s.SetDockStatus(ctx, "FAC-JAI-01", "DOCK-JAI-D1", "PARTY")
 	assert.Equal(t, errors.BadRequestErrorCode, code(err))
 }
+
+// Database guide cases "Ambiguous shipment" (DRV004 has two trips) and "Cancelled shipment message" (SHP1019).
+func TestGuideCasesAmbiguousDriverAndCancelledShipment(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	both, err := s.ShipmentsByPhone(ctx, "+91-9000010004")
+	require.NoError(t, err)
+	ids := []string{}
+	for _, sh := range both {
+		ids = append(ids, sh.ShipmentID)
+	}
+	assert.ElementsMatch(t, []string{"SHP1004", "SHP1020"}, ids, "the agent sees both trips and must ask which one")
+
+	// SHP1019's driver has no open trip; the cancelled shipment itself is not open for ETA reports.
+	_, err = s.ShipmentsByPhone(ctx, "+91-9000010008")
+	assert.Error(t, err)
+	_, err = s.ReportETA(ctx, "SHP1019", time.Date(2026, 8, 4, 12, 0, 0, 0, IST), SourceDriver, "", "TRAFFIC", "")
+	assert.Error(t, err)
+}

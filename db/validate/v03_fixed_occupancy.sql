@@ -25,11 +25,14 @@ fixed_bookings AS (
       AND sl.facility_id = run.facility_id
       AND a.shipment_id NOT IN (SELECT shipment_id FROM planned)
     UNION ALL
-    -- A live driver hold on another slot (is_current = 0 until the driver confirms) also occupies its slot,
-    -- whoever holds it. Without the run's hold expiry every such hold counts as live.
-    SELECT a.shipment_id, sl.dock_id, sl.slot_start_ts, sl.slot_end_ts, TRUE
+    -- A live driver hold on another slot (is_current = 0 until the driver confirms) also occupies its slot for
+    -- the held truck's whole unload, whoever holds it. Without the run's hold expiry every such hold counts as live.
+    SELECT a.shipment_id, sl.dock_id, sl.slot_start_ts,
+           sl.slot_start_ts + make_interval(mins => GREATEST(s.expected_unload_min,
+               (EXTRACT(EPOCH FROM sl.slot_end_ts - sl.slot_start_ts) / 60)::int)), TRUE
     FROM appointments a
     JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+    JOIN shipments s ON s.shipment_id = a.shipment_id
     CROSS JOIN run
     WHERE a.is_current = 0
       AND a.appointment_status = 'PENDING_CONFIRMATION'

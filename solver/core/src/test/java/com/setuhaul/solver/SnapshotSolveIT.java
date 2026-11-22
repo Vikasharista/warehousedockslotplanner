@@ -186,4 +186,27 @@ class SnapshotSolveIT {
         return plan.getAssignments().stream().collect(Collectors.toMap(ShipmentAssignment::getShipmentId,
                 s -> s.getSlot() == null ? "-" : s.getSlot().getId()));
     }
+
+    @Test
+    void aSilentGpsDeviceKeepsItsEtaButAddsTheLowConfidenceMargin() throws Exception {
+        // SHP1009's last GPS estimate (12:00) was written stale: no ping for 30 minutes. Removed afterwards.
+        try (Connection c = DriverManager.getConnection(url)) {
+            c.setAutoCommit(true);
+            try {
+                c.createStatement().execute("""
+                        INSERT INTO gps_eta_estimates (shipment_id, vehicle_id, lane_id, remaining_km, eta_ts,
+                            confidence_code, stale, computed_at)
+                        SELECT 'SHP1009', vehicle_id, 'L1-DEL-JAI', 80, '2026-08-04T12:00:00+05:30'::timestamptz, 'LOW',
+                               true, '2026-08-04T09:50:00+05:30'::timestamptz FROM shipments WHERE shipment_id = 'SHP1009'
+                        """);
+                ShipmentAssignment a = byId(load(MORNING).plan()).get("SHP1009");
+                assertThat(a.getEtaConfidence()).isEqualTo("LOW");
+                assertThat(clock(a.getEtaMin())).as("the ETA holds").isEqualTo("12:00");
+                assertThat(clock(a.getEarliestReadyMin())).as("12:00 + 30 min buffer + 15 min margin").isEqualTo("12:45");
+            } finally {
+                c.createStatement().execute("DELETE FROM gps_eta_estimates WHERE shipment_id = 'SHP1009' AND stale"
+                        + " AND computed_at = '2026-08-04T09:50:00+05:30'");
+            }
+        }
+    }
 }

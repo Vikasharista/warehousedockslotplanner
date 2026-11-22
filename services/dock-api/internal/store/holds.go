@@ -34,7 +34,9 @@ type Option struct {
 // optionsSQL lists the free slots a shipment can use now, by the solver's hard rules: OPEN slot on an active dock
 // of the destination, no dock event overlapping the unload, not before the truck can be ready (gate-in, or
 // effective ETA + gate buffer, + the low-confidence margin), not after the facility's last start, inside the
-// horizon, the right dock type (reefer, heavy, explicit type) and weight, and no active booking on it.
+// horizon, the right dock type (reefer, heavy, explicit type) and weight, no active booking on it, and no other
+// truck's booking or hold on the dock whose unload overlaps this truck's (a 65-minute unload in the 18:00 slot runs
+// into 19:00; the solver's H7, the validator's V1).
 const optionsSQL = `
 WITH now AS (SELECT setuhaul_now() AS ts),
 sh AS (
@@ -87,6 +89,15 @@ WHERE sl.slot_status = 'OPEN' AND d.dock_status = 'ACTIVE'
        END)
   AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = sl.slot_id
                   AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+  AND NOT EXISTS (SELECT 1 FROM appointments a
+                  JOIN appointment_slots osl ON osl.slot_id = a.slot_id
+                  JOIN shipments os ON os.shipment_id = a.shipment_id
+                  WHERE osl.dock_id = d.dock_id AND a.shipment_id <> r.shipment_id
+                    AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS')
+                    AND osl.slot_start_ts < sl.slot_start_ts + make_interval(mins => GREATEST(r.expected_unload_min,
+                        (EXTRACT(EPOCH FROM sl.slot_end_ts - sl.slot_start_ts) / 60)::int))
+                    AND sl.slot_start_ts < osl.slot_start_ts + make_interval(mins => GREATEST(os.expected_unload_min,
+                        (EXTRACT(EPOCH FROM osl.slot_end_ts - osl.slot_start_ts) / 60)::int)))
   AND NOT EXISTS (SELECT 1 FROM dock_status_events ev
                   WHERE ev.dock_id = d.dock_id AND ev.created_at <= r.now_ts
                     AND ev.event_start_ts < sl.slot_start_ts + make_interval(mins => GREATEST(r.expected_unload_min,

@@ -30,7 +30,12 @@ public record SolverSettings(
         Bumping bumping,
         long solveSeconds,
         long unimprovedSeconds,
-        long randomSeed) {
+        long randomSeed,
+        String warmStart,
+        int earlyReleaseMin) {
+
+    /** Where the search starts: an empty plan, or a plan built by one of the baseline rules. */
+    public static final Set<String> WARM_STARTS = Set.of("NONE", "FCFS", "PRIORITY_FIRST");
 
     public static final String DEFAULTS_RESOURCE = "/solver-defaults.properties";
 
@@ -62,11 +67,15 @@ public record SolverSettings(
             }
         }
         if (gateBufferMin < 0 || lowConfidenceMarginMin < 0 || horizonHours <= 0 || holdExpiryMin < 0
-                || inDockOverrunMin < 0 || defaultUnloadMin <= 0) {
+                || inDockOverrunMin < 0 || defaultUnloadMin <= 0 || earlyReleaseMin <= 0) {
             throw new IllegalArgumentException("buffers must be >= 0, horizon and unload > 0");
         }
         if (bumping == null) {
             bumping = Bumping.off();
+        }
+        warmStart = warmStart == null ? "NONE" : warmStart.trim().toUpperCase(Locale.ROOT);
+        if (!WARM_STARTS.contains(warmStart)) {
+            throw new IllegalArgumentException("warm_start must be one of " + WARM_STARTS);
         }
         if (bumping.enabled()) {
             if (bumping.by().isEmpty() || bumping.victims().isEmpty() || bumping.freezeMin() < 0) {
@@ -103,7 +112,14 @@ public record SolverSettings(
     public SolverSettings withSolveSeconds(long seconds) {
         return new SolverSettings(gateBufferMin, lowConfidenceMarginMin, horizonHours, inDockOverrunMin, holdExpiryMin,
                 defaultUnloadMin, priorityWeights, unforcedMovePenalty, forcedMovePenalty, pinFeasibleConfirmed,
-                bumping, seconds, Math.min(unimprovedSeconds, seconds), randomSeed);
+                bumping, seconds, Math.min(unimprovedSeconds, seconds), randomSeed, warmStart, earlyReleaseMin);
+    }
+
+    /** The same settings with a different search start (NONE, FCFS or PRIORITY_FIRST). */
+    public SolverSettings withWarmStart(String start) {
+        return new SolverSettings(gateBufferMin, lowConfidenceMarginMin, horizonHours, inDockOverrunMin, holdExpiryMin,
+                defaultUnloadMin, priorityWeights, unforcedMovePenalty, forcedMovePenalty, pinFeasibleConfirmed,
+                bumping, solveSeconds, unimprovedSeconds, randomSeed, start, earlyReleaseMin);
     }
 
     public static SolverSettings defaults() {
@@ -159,7 +175,9 @@ public record SolverSettings(
                         setOf(p, "bump_victims"), intOf(p, "bump_freeze_min"), longOf(p, "bump_penalty")),
                 longOf(p, "solve_seconds"),
                 longOf(p, "unimproved_seconds"),
-                longOf(p, "random_seed"));
+                longOf(p, "random_seed"),
+                required(p, "warm_start"),
+                intOf(p, "early_release_min"));
     }
 
     private static String required(Properties p, String key) {

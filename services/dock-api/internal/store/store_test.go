@@ -331,3 +331,48 @@ func TestUsers(t *testing.T) {
 	_, err = s.UserByEmail(ctx, "nobody@setuhaul.io")
 	assert.Equal(t, errors.RecordNotFoundErrorCode, code(err))
 }
+
+// Found by the race harness (phase 6): a hold on the 18:00 slot with a 65-minute unload runs into 19:00, so
+// 19:00 on that dock is not free for another truck, and a long unload may not be held into a booked next slot.
+func TestALongUnloadNextDoorMakesASlotUnavailable(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	// A slot SHP1018 could hold whose dock has a free slot just before it.
+	var target, before Option
+	for _, o := range mustOptions(t, s, "SHP1018") {
+		var prev []Option
+		require.NoError(t, s.GetDB(ctx).Raw(`SELECT slot_id, dock_id FROM appointment_slots
+			WHERE dock_id = ? AND slot_end_ts = ? AND slot_status = 'OPEN'
+			  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = appointment_slots.slot_id
+			                  AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))`,
+			o.DockID, o.SlotStart).Scan(&prev).Error)
+		if len(prev) > 0 {
+			target, before = o, prev[0]
+			break
+		}
+	}
+	require.NotEmpty(t, target.SlotID, "a free pair of slots on one dock")
+
+	// SHP1003 holds the slot before, with a 75-minute unload: it runs 15 minutes into the target slot.
+	exec(t, s, "UPDATE shipments SET expected_unload_min = 75 WHERE shipment_id = 'SHP1003'")
+	exec(t, s, `INSERT INTO appointments (appointment_id, shipment_id, slot_id, appointment_status, booking_source,
+		is_current, booked_at, updated_at)
+		VALUES ('APT-T-LONG', 'SHP1003', ?, 'PENDING_CONFIRMATION', 'DRIVER_CHAT', 0, setuhaul_now(), setuhaul_now())`,
+		before.SlotID)
+	for _, o := range mustOptions(t, s, "SHP1018") {
+		assert.NotEqual(t, target.SlotID, o.SlotID, "the long unload next door occupies the start of the slot")
+	}
+	_, err := s.CreateHold(ctx, "SHP1018", target.SlotID)
+	assert.Equal(t, SlotUnavailableCode, code(err))
+
+	// The other way round: with a 75-minute unload, SHP1018 cannot hold the slot before a booked one.
+	exec(t, s, "DELETE FROM appointments WHERE appointment_id = 'APT-T-LONG'")
+	exec(t, s, `INSERT INTO appointments (appointment_id, shipment_id, slot_id, appointment_status, booking_source,
+		is_current, booked_at, updated_at)
+		VALUES ('APT-T-NEXT', 'SHP1003', ?, 'PENDING_CONFIRMATION', 'DRIVER_CHAT', 0, setuhaul_now(), setuhaul_now())`,
+		target.SlotID)
+	exec(t, s, "UPDATE shipments SET expected_unload_min = 75 WHERE shipment_id = 'SHP1018'")
+	for _, o := range mustOptions(t, s, "SHP1018") {
+		assert.NotEqual(t, before.SlotID, o.SlotID, "a 75-minute unload would run into the next booking")
+	}
+}

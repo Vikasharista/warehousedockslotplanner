@@ -59,6 +59,20 @@ public class CommitService {
                     SELECT shipment_id FROM solver_plan_item
                     WHERE run_id = ? AND booking_action IN ('MOVED', 'RELEASED')))
             UNION ALL
+            -- A booking or hold made since solving on another slot of the dock whose unload runs into this one.
+            SELECT i.shipment_id, i.slot_id, 'overlaps the booking of ' || a.shipment_id
+            FROM solver_plan_item i
+            JOIN appointment_slots osl ON osl.dock_id = i.dock_id AND osl.slot_id <> i.slot_id
+            JOIN appointments a ON a.slot_id = osl.slot_id AND a.appointment_status IN %1$s
+            JOIN shipments os ON os.shipment_id = a.shipment_id
+            WHERE i.run_id = ? AND i.booking_action IN ('NEW', 'MOVED') AND a.shipment_id <> i.shipment_id
+              AND osl.slot_start_ts < i.planned_end_ts
+              AND i.planned_start_ts < osl.slot_start_ts + make_interval(mins => GREATEST(os.expected_unload_min,
+                    (EXTRACT(EPOCH FROM osl.slot_end_ts - osl.slot_start_ts) / 60)::int))
+              AND NOT (a.is_current = 1 AND a.shipment_id IN (
+                    SELECT shipment_id FROM solver_plan_item
+                    WHERE run_id = ? AND booking_action IN ('MOVED', 'RELEASED')))
+            UNION ALL
             SELECT i.shipment_id, i.slot_id, 'slot is ' || sl.slot_status
             FROM solver_plan_item i JOIN appointment_slots sl ON sl.slot_id = i.slot_id
             WHERE i.run_id = ? AND i.booking_action IN ('NEW', 'MOVED') AND sl.slot_status <> 'OPEN'
@@ -204,7 +218,7 @@ public class CommitService {
             }
         }
         try (PreparedStatement ps = c.prepareStatement(TAKEN_SLOTS)) {
-            for (int i = 1; i <= 4; i++) {
+            for (int i = 1; i <= 6; i++) {
                 ps.setString(i, run.runId());
             }
             try (ResultSet rs = ps.executeQuery()) {

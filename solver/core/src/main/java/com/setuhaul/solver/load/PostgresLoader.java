@@ -103,7 +103,11 @@ public final class PostgresLoader {
             """;
 
     private static final String BOOKINGS_SQL = """
-            SELECT a.shipment_id, a.slot_id, a.appointment_status, a.booked_at, sl.dock_id
+            SELECT a.shipment_id, a.slot_id, a.appointment_status, a.booked_at, sl.dock_id,
+                   (SELECT i.eta_basis_ts FROM solver_plan_item i JOIN solver_run r ON r.run_id = i.run_id
+                    WHERE r.facility_id = sl.facility_id AND r.status = 'COMMITTED' AND r.committed_at <= ?
+                      AND i.shipment_id = a.shipment_id AND i.slot_id = a.slot_id
+                    ORDER BY r.committed_at DESC LIMIT 1) AS eta_basis_ts
             FROM appointments a
             JOIN appointment_slots sl ON sl.slot_id = a.slot_id
             WHERE sl.facility_id = ?
@@ -117,9 +121,11 @@ public final class PostgresLoader {
      * the driver confirms). The held slot is not free for anyone else while the hold lasts.
      */
     private static final String SIDE_HOLDS_SQL = """
-            SELECT a.shipment_id, a.slot_id, a.booked_at, sl.dock_id, sl.slot_start_ts, sl.slot_end_ts
+            SELECT a.shipment_id, a.slot_id, a.booked_at, sl.dock_id, sl.slot_start_ts, sl.slot_end_ts,
+                   s.expected_unload_min
             FROM appointments a
             JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+            JOIN shipments s ON s.shipment_id = a.shipment_id
             WHERE sl.facility_id = ?
               AND a.is_current = 0
               AND a.appointment_status = 'PENDING_CONFIRMATION'
@@ -147,7 +153,9 @@ public final class PostgresLoader {
     private LoadResult read(Connection conn, String facilityId, OffsetDateTime asOfTs) throws SQLException {
         // Inputs are read up to the exact as-of time; planning starts at the next whole minute, so nothing is
         // planned before the moment the plan is made.
-        long asOf = Math.floorDiv(asOfTs.toEpochSecond() + 59, 60);
+        // Rounded up to the minute, counting any fraction of a second: a slot starting 12:00 is gone at 12:00:00.4,
+        // as the validator (which compares exact times) sees it.
+        long asOf = Math.floorDiv(asOfTs.toEpochSecond() + (asOfTs.getNano() > 0 ? 1 : 0) + 59, 60);
         long horizonEnd = asOf + settings.horizonHours() * 60L;
 
         // Facility, hours and rules.
@@ -255,13 +263,15 @@ public final class PostgresLoader {
         // Current bookings known at asOf.
         Map<String, Booking> bookings = new HashMap<>();
         try (PreparedStatement ps = conn.prepareStatement(BOOKINGS_SQL)) {
-            ps.setString(1, facilityId);
-            ps.setObject(2, asOfTs);
+            ps.setObject(1, asOfTs);
+            ps.setString(2, facilityId);
+            ps.setObject(3, asOfTs);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+                    OffsetDateTime basis = rs.getObject("eta_basis_ts", OffsetDateTime.class);
                     bookings.put(rs.getString("shipment_id"), new Booking(rs.getString("slot_id"),
                             rs.getString("appointment_status"), minutes(rs.getObject("booked_at", OffsetDateTime.class)),
-                            docks.get(rs.getString("dock_id"))));
+                            docks.get(rs.getString("dock_id")), basis == null ? null : minutes(basis)));
                 }
             }
         }
@@ -274,8 +284,11 @@ public final class PostgresLoader {
                     long bookedAt = minutes(rs.getObject("booked_at", OffsetDateTime.class));
                     Dock dock = docks.get(rs.getString("dock_id"));
                     if (dock != null && bookedAt + settings.holdExpiryMin() > asOf) {
-                        blocks.add(new DockBlock(dock, minutes(rs.getObject("slot_start_ts", OffsetDateTime.class)),
-                                minutes(rs.getObject("slot_end_ts", OffsetDateTime.class)), DockBlock.Kind.HELD_SLOT,
+                        // The held truck would occupy the dock for its whole unload, which may run past the slot.
+                        long start = minutes(rs.getObject("slot_start_ts", OffsetDateTime.class));
+                        long end = minutes(rs.getObject("slot_end_ts", OffsetDateTime.class));
+                        int unload = unloadMin((Integer) rs.getObject("expected_unload_min"), facilityDefaultUnload);
+                        blocks.add(new DockBlock(dock, start, Math.max(end, start + unload), DockBlock.Kind.HELD_SLOT,
                                 rs.getString("shipment_id")));
                     }
                 }
@@ -412,7 +425,10 @@ public final class PostgresLoader {
         } else if (slot == null || slot.getStartMin() < asOf) {
             reason = "SLOT_ALREADY_STARTED";
         } else if (a.canUse(slot)) {
-            reason = null;
+            // Feasible. A confirmed truck now arriving well before the ETA its slot was planned on may move earlier.
+            boolean early = status == BookingStatus.CONFIRMED && b.etaBasis != null && a.getEtaMin() != null
+                    && a.getEtaMin() <= b.etaBasis - settings.earlyReleaseMin();
+            reason = early ? "ARRIVING_EARLY" : null;
         } else {
             Compatibility.Violation v = Compatibility.violation(a, slot);
             if (v == Compatibility.Violation.H1_BEFORE_EARLIEST_READY) {
@@ -568,7 +584,8 @@ public final class PostgresLoader {
                 .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"));
     }
 
-    private record Booking(String slotId, String status, long bookedAt, Dock dock) {
+    /** A current booking; {@code etaBasis} is the ETA the last committed plan placed it on (null if none did). */
+    private record Booking(String slotId, String status, long bookedAt, Dock dock, Long etaBasis) {
     }
 
     /** One shipment row as read. */
