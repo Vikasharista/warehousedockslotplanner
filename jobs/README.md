@@ -1,7 +1,7 @@
 # jobs
 
 Python jobs for the SetuHaul planner. Phase 1: the Postgres seed loader and the data audit.
-Phase 3 adds the GPS simulator and the ETA service.
+Phase 3 adds the GPS simulator and the ETA service; phase 4 the shared clock and the live GPS loop.
 
 ## Setup
 
@@ -22,6 +22,22 @@ cd jobs
 
 The loader copies all 18 tables in one transaction, in foreign-key order, and fails if any table's
 row count differs from the SQLite file. The SQLite file is opened read-only.
+
+`--init` is for container start-up: it creates the schema and loads the snapshot only when the database has no
+shipments yet, and otherwise changes nothing.
+
+### The shared clock
+
+Every service reads "now" from `setuhaul_now()` in Postgres, so the solver, the API, the GPS feed and the plan view
+agree on it. The seed starts it at the snapshot's moment, 4 August 2026 09:55 IST, running at real speed:
+
+```bash
+../.venv/bin/python -m setuhaul_jobs.seed --clock-start 2026-08-04T09:55:00+05:30 --clock-rate 1   # the default
+../.venv/bin/python -m setuhaul_jobs.seed --clock-start real                                      # real time
+```
+
+The clock is one row in `app_clock` (`sim_anchor`, `real_anchor`, `rate`). To jump it forward by hand:
+`UPDATE app_clock SET sim_anchor = sim_anchor + interval '30 minutes';`
 
 ## Run the data audit
 
@@ -58,6 +74,42 @@ cd jobs
   last ETA is kept once more, marked stale with LOW confidence.
 - `v_effective_eta` (and the solver, as of its run time): an OPERATIONS_OVERRIDE wins; otherwise the GPS ETA,
   or the driver's later ETA while their exception is open; otherwise the latest ETA update.
+
+### Live feed
+
+```bash
+../.venv/bin/python -m setuhaul_jobs.gps.live --every-seconds 30 [--scenario SHP1012=breakdown]
+```
+
+Each tick writes the simulated pings up to `setuhaul_now()` and recomputes the GPS ETAs, so the solver's ETA trigger
+sees trucks drift as the simulated day goes on. Lane speed for the ETA is a fixed 45 km/h (a decision); the simulated
+trucks move at 35 to 76 km/h, so GPS ETAs can be up to about an hour off the declared ones.
+
+## Load test: extra truck requests
+
+```bash
+../.venv/bin/python -m setuhaul_jobs.scenario --trucks 70 --trickle 20 [--seed 42] [--once] \
+    [--no-disruptions] [--coordinator-cases 4]
+```
+
+Adds generated truck requests (`SHP-G0001` on) for Jaipur DC, in Postgres only.
+- **Arrival.** `--trucks` in all, of which `--trickle` are requested between 10:00 and 17:00 simulated; the rest are
+  known now. A request exists only from its `created_at`, so the trickle reaches the solver during the day and
+  fires the `NEW_REQUEST` trigger.
+- **Mix.** About 15% reefer and 15% heavy loads, the snapshot's priorities and customers, and origins on and off the
+  GPS lanes.
+- **Disruptions.** About a quarter of the trucks report a delay or an early arrival during the day, and D4 breaks
+  down 14:00 to 15:30.
+- **Coordinator cases.** Weight breaches (a 21 t load booked on a 20 t dock) and trucks that arrive after the last
+  start time.
+- **Repeatability.** The same seed gives the same trucks; `--once` skips if generated trucks already exist.
+
+Docker Compose runs it once on the first start. The plan view's "Add requests" queues more
+(`truck_request_jobs`), which the live GPS loop generates within seconds.
+
+On the snapshot plus the default scenario, the first plan places 44 of 62 trucks with 80% dock utilisation, and
+the validator passes. The trucks left out are reefer loads after the 18:00 reefer maintenance, heavy loads beyond
+D6's seven slots, late standard loads, and arrivals after the last start.
 
 ## Validate a solver run
 

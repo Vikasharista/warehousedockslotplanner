@@ -31,6 +31,8 @@ public class ShipmentAssignment {
     private int unloadMin;
     private long earliestReadyMin;
     private String etaConfidence;
+    /** The effective ETA this truck is planned on, epoch minutes; null once it is at the gate. */
+    private Long etaMin;
     /** Planned departure of this vehicle's next shipment, in epoch minutes; null when it has none. */
     private Long nextPickupMin;
 
@@ -45,6 +47,9 @@ public class ShipmentAssignment {
 
     @PlanningPin
     private boolean pinned;
+
+    /** A feasible CONFIRMED booking left movable only so that a CRITICAL truck may take its slot. */
+    private boolean bumpable;
 
     @PlanningVariable(valueRangeProviderRefs = "candidateSlots", allowsUnassigned = true)
     private Slot slot;
@@ -107,6 +112,8 @@ public class ShipmentAssignment {
     public long getEarliestReadyMin() { return earliestReadyMin; }
     public String getEtaConfidence() { return etaConfidence; }
     public void setEtaConfidence(String etaConfidence) { this.etaConfidence = etaConfidence; }
+    public Long getEtaMin() { return etaMin; }
+    public void setEtaMin(Long etaMin) { this.etaMin = etaMin; }
     public Long getNextPickupMin() { return nextPickupMin; }
     public void setNextPickupMin(Long nextPickupMin) { this.nextPickupMin = nextPickupMin; }
     public Slot getOriginalSlot() { return originalSlot; }
@@ -127,6 +134,21 @@ public class ShipmentAssignment {
     }
 
     public boolean isPinned() { return pinned; }
+    public boolean isBumpable() { return bumpable; }
+    public void setBumpable(boolean bumpable) { this.bumpable = bumpable; }
+    /** A bumpable booking that is no longer in its own slot (moved or unassigned). */
+    public boolean isBumped() { return bumpable && (slot == null || !slot.equals(originalSlot)); }
+    /** A commitment: pinned, or a bumpable booking still in its own slot. */
+    public boolean isCommitted() { return pinned || (bumpable && !isBumped()); }
+    /**
+     * True when this truck's dock time overlaps the dock time {@code bumped} had in its booking: its slot plus any
+     * unload running past the slot's end (a long unload also blocks the start of the next slot).
+     */
+    public boolean takesSlotOf(ShipmentAssignment bumped) {
+        Slot o = bumped.originalSlot;
+        return slot != null && o != null && slot.getDock().equals(o.getDock())
+                && startMin() < o.getStartMin() + Math.max(bumped.unloadMin, o.lengthMin()) && o.getStartMin() < endMin();
+    }
     public void setPinned(boolean pinned) { this.pinned = pinned; }
     public Slot getSlot() { return slot; }
     public void setSlot(Slot slot) { this.slot = slot; }

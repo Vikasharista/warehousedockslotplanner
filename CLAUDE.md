@@ -25,3 +25,24 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
 - GPS is simulated on three fixed lanes (Delhi, Ahmedabad, Mumbai to FAC-JAI-01); GPS ETAs live in their
   own table, not in `eta_updates`.
 - All weights, buffers and limits are configuration, not constants.
+- The GPS ETA service uses one fixed lane speed (45 km/h, configurable). Simulated trucks move at 35-76 km/h, so
+  GPS ETAs can be up to about an hour off; a rolling observed speed is the upgrade if that becomes a problem.
+- Every service reads "now" from `setuhaul_now()` (the `app_clock` row). The seed starts it at the snapshot's
+  4 Aug 2026 09:55 IST running at real speed; never use the wall clock for planning decisions.
+- A valid plan is committed automatically (independent validator, stale check, one transaction). Re-plan triggers:
+  gate check-in, a new truck request (NEW_REQUEST), effective ETA moved more than 30 minutes from the ETA the slot
+  was planned on, and every 15 minutes.
+- A shipment exists for planning only from its `created_at`; every reader filters on it, which is how generated
+  requests arrive during the simulated day. Generated load-test data (`SHP-G…`) lives in Postgres only.
+- Feasible CONFIRMED bookings stay pinned, except that a CRITICAL truck may bump one LOW or NORMAL booking
+  starting more than 2 hours after the plan (never a truck at the gate, a flagged booking or a driver hold). The
+  bump costs `bump_penalty` (10) on the unassigned level, between HIGH's weight (9) and CRITICAL's (27); only a
+  CRITICAL truck may use a bumped slot, at most one each; the bumped truck is re-planned or goes to the exceptions
+  list (`BUMPED_FOR_CRITICAL`). All of it is configuration (`bump_*` in solver-defaults.properties).
+- The demo is deployed as the same Docker Compose stack on one Linux VM (`docker-compose.deploy.yml`): Caddy
+  HTTPS in front, no public ports for the services, secrets only from `.env`. Reviewers sign in with seeded
+  email + password demo accounts (bcrypt in `app_users`, session cookie), all with full access. A nightly reset
+  (03:00 IST) reloads the snapshot at 09:55 with the load test and keeps the accounts. Hosting provider undecided.
+- Driver holds belong to dock-api (Go). A truck with a booking holds a second slot beside it (`is_current = 0`) until
+  the driver confirms. Holds and solver commits share one per-facility advisory lock
+  (`setuhaul.bookings:<facility>`).

@@ -13,7 +13,7 @@ CREATE TABLE solver_run (
     facility_id TEXT NOT NULL REFERENCES facilities(facility_id),
     as_of_ts TIMESTAMPTZ NOT NULL,
     horizon_end_ts TIMESTAMPTZ NOT NULL,
-    run_trigger TEXT NOT NULL CHECK (run_trigger IN ('SCHEDULED','ETA_DELAY','CHECKIN','MANUAL')),
+    run_trigger TEXT NOT NULL CHECK (run_trigger IN ('SCHEDULED','ETA_DELAY','CHECKIN','NEW_REQUEST','MANUAL')),
     status TEXT NOT NULL CHECK (status IN ('SOLVED','REJECTED','COMMITTED')),
     score TEXT NOT NULL,
     feasible BOOLEAN NOT NULL,

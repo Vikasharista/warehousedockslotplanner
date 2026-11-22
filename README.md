@@ -7,6 +7,42 @@ that no two trucks are ever promised the same dock at the same time, and higher-
 The design, constraints, objective and decisions are in the plan document:
 [SetuHaul Dock Sequencing Solver: Plan](https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC).
 
+## Run it on your machine
+
+Needs Docker with Compose v2.
+
+```bash
+git clone https://github.com/Vikasharista/warehousedockslotplanner.git
+cd warehousedockslotplanner
+docker compose up --build
+```
+
+Then open **http://localhost:5173** and sign in with the local demo account **demo@setuhaul.local** /
+**setuhaul-demo-2026** (local only). The first build downloads the Maven, Go, npm and Python dependencies and takes
+a few minutes; later starts are quick. What starts:
+
+| Service | Port (localhost only) | What it does |
+| --- | --- | --- |
+| `db` | 55432 | Postgres 16 |
+| `seed` | | Loads the snapshot and starts the shared clock at 4 Aug 2026 09:55 IST, once; later starts keep your data |
+| `gps` | | Simulated GPS on the three lanes and the ETA service, every 30 s |
+| `solver` | 8081 | Plans, validates, commits; re-plans on ETA shifts, check-ins and every 15 minutes |
+| `api` | 8082 | dock-api: the plan view's API and driver holds |
+| `web` | 5173 | The plan view |
+
+The first start also loads a **load test**: 70 generated truck requests on top of the snapshot's 20. Fifty are known
+at 09:55 and twenty arrive between 10:00 and 17:00, with delays, a dock breakdown and coordinator cases. That fills
+the docks and leaves some trucks for a coordinator. "Add requests" in the plan view adds more at any time.
+`SETUHAUL_SCENARIO_TRUCKS=0 docker compose up --build` on the first start gives the snapshot alone (see
+`jobs/README.md`).
+
+`docker compose down -v` throws the data away; the next `up` starts again from the snapshot at 09:55.
+
+**Deploying for reviewers:** [docs/deploy.md](docs/deploy.md) covers any Linux VM. It adds HTTPS, the demo accounts
+you choose, and a nightly reset to the start of the demo day.
+
+![The plan view](docs/plan-view.png)
+
 ## Layout
 
 | Folder | What lives there | Stack |
@@ -14,10 +50,10 @@ The design, constraints, objective and decisions are in the plan document:
 | [`data/routes/`](data/routes/) | The three fixed truck routes into the Jaipur DC (OpenRouteService, OpenStreetMap data) | GeoJSON |
 | [`data/setuhaul/`](data/setuhaul/) | The supplied SQLite snapshot (4 August 2026) and its schema, dictionary and guide. Read-only seed | SQLite |
 | [`db/`](db/) | Postgres schema ported from the snapshot, and the data-audit queries | Postgres 16 |
-| [`jobs/`](jobs/) | Python jobs: seed loader, data audit, later the GPS simulator and ETA service | Python 3.12+ |
+| [`jobs/`](jobs/) | Python jobs: seed loader, data audit, plan validator, GPS simulator and ETA service | Python 3.12+ |
 | [`solver/`](solver/) | The dock-sequencing solver | Java 17+, Maven, Timefold Solver |
-| [`services/`](services/) | Go services: capacity layer (hold, confirm, release), plan API. [`services/core-lib/`](services/core-lib/) is their shared library (config, DB, errors, auth, GraphQL glue) | Go 1.24+ |
-| [`web/`](web/) | Planning frontend: plan view, input data, capacity inputs | React, TypeScript, Vite |
+| [`services/`](services/) | [`dock-api`](services/dock-api/): the plan view's API and driver holds (hold, confirm, release). [`core-lib`](services/core-lib/): the Go services' shared library | Go 1.24+ |
+| [`web/`](web/) | The plan view: dock sequence, exceptions, change log, runs, driver holds | React, TypeScript, Vite |
 | [`docs/`](docs/) | Data audit report and other project documents | Markdown |
 
 Postgres is the runtime database. The SQLite file is kept unchanged as the seed source.
@@ -27,8 +63,8 @@ Postgres is the runtime database. The SQLite file is kept unchanged as the seed 
 1. Data audit and Postgres seed
 2. Solver model and constraints
 3. Snapshot service, plan tables, GPS lanes, simulator and ETA service, core library for the Go services
-4. Commit path and re-plan triggers
-5. Plan view frontend and agent hooks
+4. Commit path, re-plan triggers, driver holds and the plan view (the plan view moved up from phase 5)
+5. Agent hooks and the rest of the frontend
 6. Integrity, scale and baseline tests; client readout
 
 Each phase lands as a branch and a pull request.

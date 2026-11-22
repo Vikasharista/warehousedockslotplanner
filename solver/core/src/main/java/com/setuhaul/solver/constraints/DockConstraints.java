@@ -1,6 +1,7 @@
 package com.setuhaul.solver.constraints;
 
 import ai.timefold.solver.core.api.score.BendableScore;
+import ai.timefold.solver.core.api.score.stream.ConstraintCollectors;
 import ai.timefold.solver.core.api.score.stream.Constraint;
 import ai.timefold.solver.core.api.score.stream.ConstraintFactory;
 import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
@@ -27,6 +28,9 @@ public class DockConstraints implements ConstraintProvider {
     public static final String WEIGHTED_WAIT = "L4 priority-weighted waiting";
     public static final String UNFORCED_MOVE = "L4 unforced move of a confirmed booking";
     public static final String FORCED_MOVE = "L4 forced move of a confirmed booking";
+    public static final String BUMP = "L1 confirmed booking bumped";
+    public static final String BUMPED_SLOT_TAKER = "H13 only a bumping priority may take a bumped slot";
+    public static final String ONE_BUMP_EACH = "H14 at most one bumped booking per truck";
 
     private static final BendableScore HARD = BendableScore.ofHard(1, 4, 0, 1);
     private static final BendableScore L1 = BendableScore.ofSoft(1, 4, 0, 1);
@@ -46,6 +50,9 @@ public class DockConstraints implements ConstraintProvider {
             weightedWait(f),
             unforcedMove(f),
             forcedMove(f),
+            bump(f),
+            bumpedSlotTaker(f),
+            oneBumpEach(f),
         };
     }
 
@@ -93,7 +100,7 @@ public class DockConstraints implements ConstraintProvider {
         return f.forEach(ShipmentAssignment.class)
                 .join(ShipmentAssignment.class,
                         Joiners.greaterThan(ShipmentAssignment::getPriorityWeight),
-                        Joiners.filtering((hi, lo) -> !lo.isPinned()
+                        Joiners.filtering((hi, lo) -> !lo.isCommitted()
                                 && lo.startMin() < hi.startMin()
                                 && hi.canUse(lo.getSlot())))
                 .penalize(L2, (hi, lo) -> hi.getPriorityWeight() - lo.getPriorityWeight())
@@ -105,7 +112,7 @@ public class DockConstraints implements ConstraintProvider {
         return f.forEach(ShipmentAssignment.class)
                 .join(ShipmentAssignment.class,
                         Joiners.equal(ShipmentAssignment::getPriorityWeight),
-                        Joiners.filtering((urgent, other) -> !other.isPinned()
+                        Joiners.filtering((urgent, other) -> !other.isCommitted()
                                 && urgent.pickupMoreUrgentThan(other)
                                 && other.startMin() < urgent.startMin()
                                 && urgent.canUse(other.getSlot())))
@@ -137,6 +144,43 @@ public class DockConstraints implements ConstraintProvider {
                 .join(PlanWeights.class)
                 .penalize(L4, (a, w) -> w.forcedMovePenalty())
                 .asConstraint(FORCED_MOVE);
+    }
+
+    /**
+     * L1: a feasible CONFIRMED booking left its slot (moved, or unassigned) to make room for a CRITICAL truck. The
+     * penalty sits between the weights of the priorities that may bump and the rest, so only placing a bumping truck
+     * pays for it (checked when the settings load).
+     */
+    Constraint bump(ConstraintFactory f) {
+        return f.forEachIncludingUnassigned(ShipmentAssignment.class)
+                .filter(ShipmentAssignment::isBumped)
+                .join(PlanWeights.class)
+                .penalize(L1, (a, w) -> w.bumpPenalty())
+                .asConstraint(BUMP);
+    }
+
+    /** H13: only a truck of a bumping priority (CRITICAL) may use the slot a bumped booking left. */
+    Constraint bumpedSlotTaker(ConstraintFactory f) {
+        return f.forEach(ShipmentAssignment.class)
+                .join(f.forEachIncludingUnassigned(ShipmentAssignment.class),
+                        Joiners.filtering((taker, bumped) -> taker != bumped && bumped.isBumped()
+                                && taker.takesSlotOf(bumped)))
+                .join(PlanWeights.class,
+                        Joiners.filtering((taker, bumped, w) -> !w.bumpBy().contains(taker.getPriorityCode())))
+                .penalize(HARD)
+                .asConstraint(BUMPED_SLOT_TAKER);
+    }
+
+    /** H14: one truck may take the slot of at most one bumped booking. */
+    Constraint oneBumpEach(ConstraintFactory f) {
+        return f.forEach(ShipmentAssignment.class)
+                .join(f.forEachIncludingUnassigned(ShipmentAssignment.class),
+                        Joiners.filtering((taker, bumped) -> taker != bumped && bumped.isBumped()
+                                && taker.takesSlotOf(bumped)))
+                .groupBy((taker, bumped) -> taker, ConstraintCollectors.countBi())
+                .filter((taker, n) -> n > 1)
+                .penalize(HARD, (taker, n) -> n - 1)
+                .asConstraint(ONE_BUMP_EACH);
     }
 
     static long overlap(long aStart, long aEnd, long bStart, long bEnd) {

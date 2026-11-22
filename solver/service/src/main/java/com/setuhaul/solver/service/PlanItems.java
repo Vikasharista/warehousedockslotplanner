@@ -35,20 +35,26 @@ public final class PlanItems {
         for (ShipmentAssignment a : ordered) {
             boolean hadBooking = a.getOriginalStatus() != BookingStatus.NONE;
             OffsetDateTime ready = ts(a.getEarliestReadyMin(), zone);
+            OffsetDateTime etaBasis = a.getEtaMin() == null ? null : ts(a.getEtaMin(), zone);
             if (a.getSlot() != null) {
                 String dockId = a.getSlot().getDock().getId();
                 int seq = sequence.merge(dockId, 1, Integer::sum);
                 String action = !hadBooking ? "NEW" : a.movedOffOriginal() ? "MOVED" : "KEPT";
                 items.add(new Api.Item(a.getShipmentId(), "ALLOCATED", a.getVehicleId(), a.getPriorityCode(),
                         dockId, a.getSlot().getId(), ts(a.startMin(), zone), ts(a.endMin(), zone), seq, ready,
-                        (int) a.waitMin(), action, a.getOriginalSlotId(), a.isPinned(),
-                        a.getReleaseReason(), null));
+                        etaBasis, (int) a.waitMin(), action, a.getOriginalSlotId(), a.isPinned(),
+                        a.isBumped() ? BUMPED : a.getReleaseReason(), a.isBumped() ? bumpDetail(a, solved) : null,
+                        null));
+            } else if (a.isBumped()) {
+                items.add(new Api.Item(a.getShipmentId(), "UNASSIGNED", a.getVehicleId(), a.getPriorityCode(),
+                        null, null, null, null, null, ready, etaBasis, null, "RELEASED", a.getOriginalSlotId(), false,
+                        BUMPED, bumpDetail(a, solved) + "; no other free slot", null));
             } else {
                 String reason = load.emptyCandidateReasons().getOrDefault(a.getShipmentId(), "NO_FREE_SLOT");
                 items.add(new Api.Item(a.getShipmentId(), "UNASSIGNED", a.getVehicleId(), a.getPriorityCode(),
-                        null, null, null, null, null, ready, null, hadBooking ? "RELEASED" : null,
+                        null, null, null, null, null, ready, etaBasis, null, hadBooking ? "RELEASED" : null,
                         a.getOriginalSlotId(), false, reason,
-                        a.getReleaseReason() == null ? null : "booking released: " + a.getReleaseReason()));
+                        a.getReleaseReason() == null ? null : "booking released: " + a.getReleaseReason(), null));
             }
         }
         notes(items, load.flagged(), "FLAGGED");
@@ -57,10 +63,20 @@ public final class PlanItems {
         return items;
     }
 
+    /** Reason code of a booking that gave its slot to a CRITICAL truck. */
+    static final String BUMPED = "BUMPED_FOR_CRITICAL";
+
+    private static String bumpDetail(ShipmentAssignment bumped, DockPlan solved) {
+        return solved.getAssignments().stream()
+                .filter(t -> t != bumped && t.getSlot() != null && t.takesSlotOf(bumped))
+                .map(t -> "slot given to " + t.getPriorityCode() + " " + t.getShipmentId())
+                .findFirst().orElse("slot given to a CRITICAL truck");
+    }
+
     private static void notes(List<Api.Item> items, List<LoadResult.Note> notes, String status) {
         for (LoadResult.Note n : notes) {
             items.add(new Api.Item(n.shipmentId(), status, null, null, n.dockId(), null, null, null, null, null,
-                    null, null, n.slotId(), false, n.reason(), n.detail()));
+                    null, null, null, n.slotId(), false, n.reason(), n.detail(), null));
         }
     }
 

@@ -8,7 +8,9 @@ import java.util.Objects;
  */
 public record DockBlock(Dock dock, long startMin, long endMin, Kind kind, String reference) {
 
-    public enum Kind { DOCK_EVENT, BLOCKED_SLOT, FACILITY_CLOSED, TRUCK_IN_DOCK, FLAGGED_BOOKING }
+    public enum Kind { DOCK_EVENT, BLOCKED_SLOT, FACILITY_CLOSED, TRUCK_IN_DOCK, FLAGGED_BOOKING,
+        /** A live driver hold (PENDING_CONFIRMATION) of a shipment that keeps another current booking. */
+        HELD_SLOT }
 
     public DockBlock {
         Objects.requireNonNull(dock);

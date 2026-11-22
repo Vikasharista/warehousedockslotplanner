@@ -37,11 +37,13 @@ public final class PlanReport {
             List<String> rows = new java.util.ArrayList<>();
             solved.getBlocks().stream()
                     .filter(b -> b.dock().equals(dock) && b.kind() == DockBlock.Kind.TRUCK_IN_DOCK
-                            || b.dock().equals(dock) && b.kind() == DockBlock.Kind.FLAGGED_BOOKING)
+                            || b.dock().equals(dock) && b.kind() == DockBlock.Kind.FLAGGED_BOOKING
+                            || b.dock().equals(dock) && b.kind() == DockBlock.Kind.HELD_SLOT)
                     .sorted(Comparator.comparingLong(DockBlock::startMin))
                     .forEach(b -> rows.add(String.format(Locale.ROOT, "  %s-%s  %-8s  %s",
                             t(b.startMin(), zone), t(b.endMin(), zone), b.reference(),
-                            b.kind() == DockBlock.Kind.TRUCK_IN_DOCK ? "in dock (not planned)" : "flagged booking, left as is")));
+                            b.kind() == DockBlock.Kind.TRUCK_IN_DOCK ? "in dock (not planned)"
+                            : b.kind() == DockBlock.Kind.HELD_SLOT ? "held for a driver" : "flagged booking, left as is")));
             solved.getAssignments().stream()
                     .filter(a -> a.getSlot() != null && a.dock().equals(dock))
                     .sorted(Comparator.comparingLong(ShipmentAssignment::startMin))

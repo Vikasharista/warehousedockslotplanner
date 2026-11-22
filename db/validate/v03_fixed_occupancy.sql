@@ -13,7 +13,8 @@ planned AS (  -- trucks this run allocates or leaves unassigned: their old booki
 fixed_bookings AS (
     SELECT a.shipment_id, sl.dock_id, sl.slot_start_ts AS start_ts,
            sl.slot_start_ts + make_interval(mins => GREATEST(s.expected_unload_min,
-               (EXTRACT(EPOCH FROM sl.slot_end_ts - sl.slot_start_ts) / 60)::int)) AS end_ts
+               (EXTRACT(EPOCH FROM sl.slot_end_ts - sl.slot_start_ts) / 60)::int)) AS end_ts,
+           FALSE AS side_hold
     FROM appointments a
     JOIN appointment_slots sl ON sl.slot_id = a.slot_id
     JOIN shipments s ON s.shipment_id = a.shipment_id
@@ -23,6 +24,19 @@ fixed_bookings AS (
       AND a.booked_at <= run.as_of_ts
       AND sl.facility_id = run.facility_id
       AND a.shipment_id NOT IN (SELECT shipment_id FROM planned)
+    UNION ALL
+    -- A live driver hold on another slot (is_current = 0 until the driver confirms) also occupies its slot,
+    -- whoever holds it. Without the run's hold expiry every such hold counts as live.
+    SELECT a.shipment_id, sl.dock_id, sl.slot_start_ts, sl.slot_end_ts, TRUE
+    FROM appointments a
+    JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+    CROSS JOIN run
+    WHERE a.is_current = 0
+      AND a.appointment_status = 'PENDING_CONFIRMATION'
+      AND a.booked_at <= run.as_of_ts
+      AND sl.facility_id = run.facility_id
+      AND (run.settings ->> 'holdExpiryMin' IS NULL
+           OR a.booked_at + make_interval(mins => (run.settings ->> 'holdExpiryMin')::int) > run.as_of_ts)
 ),
 in_dock AS (
     SELECT fc.shipment_id, fc.actual_dock_id AS dock_id,
@@ -36,7 +50,7 @@ in_dock AS (
 )
 SELECT i.shipment_id, 'clashes with the booking of ' || f.shipment_id || ' on ' || i.dock_id AS detail
 FROM items i JOIN fixed_bookings f ON f.dock_id = i.dock_id
-WHERE i.shipment_id <> f.shipment_id
+WHERE (i.shipment_id <> f.shipment_id OR f.side_hold)
   AND i.planned_start_ts < f.end_ts AND f.start_ts < i.planned_end_ts
 UNION ALL
 SELECT i.shipment_id, 'starts while ' || d.shipment_id || ' is still in ' || i.dock_id AS detail

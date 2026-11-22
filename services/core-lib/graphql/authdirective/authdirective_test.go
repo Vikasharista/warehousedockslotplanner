@@ -262,3 +262,18 @@ func TestPermsvcNamespaces(t *testing.T) {
 	_, err := d.Authenticate()(request("ns-2", "Bearer x"), nil, resolver(new(string)))
 	assert.Equal(t, errors.ForbiddenErrorCode, errors.CodeOf(err))
 }
+
+func TestVerifyIsTheDirectivesCheckForPlainHTTP(t *testing.T) {
+	d := jwtDirective(t, Config{})
+	ctx, err := d.Verify(request("ns-1", "Bearer "+token(t, secret, userClaims("widget:read"))))
+	require.NoError(t, err)
+	user, _ := utility.GetUserID(ctx)
+	assert.Equal(t, "u-1", user)
+	ok, err := d.Allowed(ctx, "widget:read")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	ok, _ = d.Allowed(ctx, "widget:write")
+	assert.False(t, ok)
+	_, err = d.Verify(request("ns-1", "Bearer nope"))
+	assert.Equal(t, errors.UnauthenticatedErrorCode, errors.CodeOf(err))
+}

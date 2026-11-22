@@ -124,6 +124,18 @@ func (d *Directive) HasPermission() func(ctx context.Context, obj interface{}, n
 	}
 }
 
+// Verify authenticates the request carried by ctx (its Authorization value, see constant.CtxAuthorization) and
+// returns a context with the verified user and permissions, or UNAUTHENTICATED / FORBIDDEN. It is the same check
+// the directives run, for plain HTTP middleware.
+func (d *Directive) Verify(ctx context.Context) (context.Context, error) {
+	return d.ensure(ctx)
+}
+
+// Allowed reports whether the verified user in ctx holds permission (call Verify first).
+func (d *Directive) Allowed(ctx context.Context, permission string) (bool, error) {
+	return d.allowed(ctx, permission)
+}
+
 func (d *Directive) ensure(ctx context.Context) (context.Context, error) {
 	if _, ok := ctx.Value(sessionKey{}).(*session); ok {
 		return ctx, nil
