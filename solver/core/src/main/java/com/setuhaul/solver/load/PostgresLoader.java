@@ -107,7 +107,8 @@ public final class PostgresLoader {
                    (SELECT i.eta_basis_ts FROM solver_plan_item i JOIN solver_run r ON r.run_id = i.run_id
                     WHERE r.facility_id = sl.facility_id AND r.status = 'COMMITTED' AND r.committed_at <= ?
                       AND i.shipment_id = a.shipment_id AND i.slot_id = a.slot_id
-                    ORDER BY r.committed_at DESC LIMIT 1) AS eta_basis_ts
+                    ORDER BY r.committed_at DESC LIMIT 1) AS eta_basis_ts,
+                   hold_expires_at(a.appointment_id, a.booked_at, ?) AS hold_expires_at
             FROM appointments a
             JOIN appointment_slots sl ON sl.slot_id = a.slot_id
             WHERE sl.facility_id = ?
@@ -118,11 +119,12 @@ public final class PostgresLoader {
 
     /**
      * Live driver holds on another slot by a shipment that still has its current booking (is_current = 0 until
-     * the driver confirms). The held slot is not free for anyone else while the hold lasts.
+     * the driver confirms). The held slot is not free for anyone else while the hold lasts: hold_expiry_min after
+     * booking, or, for a HIGH or CRITICAL truck's change waiting for a coordinator, until its request expires.
      */
     private static final String SIDE_HOLDS_SQL = """
             SELECT a.shipment_id, a.slot_id, a.booked_at, sl.dock_id, sl.slot_start_ts, sl.slot_end_ts,
-                   s.expected_unload_min
+                   s.expected_unload_min, hold_expires_at(a.appointment_id, a.booked_at, ?) AS hold_expires_at
             FROM appointments a
             JOIN appointment_slots sl ON sl.slot_id = a.slot_id
             JOIN shipments s ON s.shipment_id = a.shipment_id
@@ -264,26 +266,29 @@ public final class PostgresLoader {
         Map<String, Booking> bookings = new HashMap<>();
         try (PreparedStatement ps = conn.prepareStatement(BOOKINGS_SQL)) {
             ps.setObject(1, asOfTs);
-            ps.setString(2, facilityId);
-            ps.setObject(3, asOfTs);
+            ps.setInt(2, settings.holdExpiryMin());
+            ps.setString(3, facilityId);
+            ps.setObject(4, asOfTs);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     OffsetDateTime basis = rs.getObject("eta_basis_ts", OffsetDateTime.class);
                     bookings.put(rs.getString("shipment_id"), new Booking(rs.getString("slot_id"),
                             rs.getString("appointment_status"), minutes(rs.getObject("booked_at", OffsetDateTime.class)),
+                            minutes(rs.getObject("hold_expires_at", OffsetDateTime.class)),
                             docks.get(rs.getString("dock_id")), basis == null ? null : minutes(basis)));
                 }
             }
         }
 
         try (PreparedStatement ps = conn.prepareStatement(SIDE_HOLDS_SQL)) {
-            ps.setString(1, facilityId);
-            ps.setObject(2, asOfTs);
+            ps.setInt(1, settings.holdExpiryMin());
+            ps.setString(2, facilityId);
+            ps.setObject(3, asOfTs);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    long bookedAt = minutes(rs.getObject("booked_at", OffsetDateTime.class));
+                    long expiresAt = minutes(rs.getObject("hold_expires_at", OffsetDateTime.class));
                     Dock dock = docks.get(rs.getString("dock_id"));
-                    if (dock != null && bookedAt + settings.holdExpiryMin() > asOf) {
+                    if (dock != null && expiresAt > asOf) {
                         // The held truck would occupy the dock for its whole unload, which may run past the slot.
                         long start = minutes(rs.getObject("slot_start_ts", OffsetDateTime.class));
                         long end = minutes(rs.getObject("slot_end_ts", OffsetDateTime.class));
@@ -420,7 +425,7 @@ public final class PostgresLoader {
         BookingStatus status = "PENDING_CONFIRMATION".equals(b.status) ? BookingStatus.PENDING_CONFIRMATION
                 : BookingStatus.CONFIRMED;
         String reason;
-        if (status == BookingStatus.PENDING_CONFIRMATION && b.bookedAt + settings.holdExpiryMin() <= asOf) {
+        if (status == BookingStatus.PENDING_CONFIRMATION && b.holdExpiresAt <= asOf) {
             reason = "HOLD_EXPIRED";
         } else if (slot == null || slot.getStartMin() < asOf) {
             reason = "SLOT_ALREADY_STARTED";
@@ -585,7 +590,8 @@ public final class PostgresLoader {
     }
 
     /** A current booking; {@code etaBasis} is the ETA the last committed plan placed it on (null if none did). */
-    private record Booking(String slotId, String status, long bookedAt, Dock dock, Long etaBasis) {
+    /** holdExpiresAt: when a PENDING_CONFIRMATION hold stops counting (its reservation's expiry, if it has one). */
+    private record Booking(String slotId, String status, long bookedAt, long holdExpiresAt, Dock dock, Long etaBasis) {
     }
 
     /** One shipment row as read. */

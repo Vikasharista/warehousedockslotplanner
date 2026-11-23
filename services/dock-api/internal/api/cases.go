@@ -175,7 +175,6 @@ func (h *handlers) confirmHold(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, hold)
 }
 
-
 // decodeOptional is decode for a body that may be left out entirely.
 func decodeOptional(w http.ResponseWriter, r *http.Request, v interface{}, shape string) bool {
 	if r.ContentLength == 0 {

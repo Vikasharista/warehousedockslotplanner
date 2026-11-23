@@ -677,4 +677,3 @@ func (s *Store) DriverCasesView(ctx context.Context, facilityID string) (*Driver
 	}
 	return &out, nil
 }
-

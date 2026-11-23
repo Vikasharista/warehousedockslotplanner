@@ -220,24 +220,24 @@ func driverMessage(a *AgentShipment) string {
 // FeedChange is one change for the agent, oldest first: a booking the solver made, moved or released (kind
 // BOOKING), a coordinator's decision on a slot change (APPROVAL) or a coordinator's reply to a case (REPLY).
 type FeedChange struct {
-	ChangeID      int64   `json:"changeId"`
-	Kind          string  `json:"kind"`
-	ShipmentID    *string `json:"shipmentId,omitempty"`
-	DriverPhone   *string `json:"driverPhone,omitempty"`
-	RequestID     *string `json:"requestId,omitempty"`
-	CaseID        *string `json:"caseId,omitempty"`
-	Channel       *string `json:"channel,omitempty"`
-	ChannelUserID *string `json:"channelUserId,omitempty"`
-	ReplyText     *string `json:"replyText,omitempty"`
-	Note          *string `json:"note,omitempty"`
-	Action        string  `json:"action"`
-	FromDockCode *string    `json:"fromDockCode,omitempty"`
-	FromStart    *time.Time `json:"fromStart,omitempty"`
-	ToDockCode   *string    `json:"toDockCode,omitempty"`
-	ToStart      *time.Time `json:"toStart,omitempty"`
-	ReasonCode   *string    `json:"reasonCode,omitempty"`
-	ChangedAt    time.Time  `json:"changedAt"`
-	Message      string     `json:"message"`
+	ChangeID      int64      `json:"changeId"`
+	Kind          string     `json:"kind"`
+	ShipmentID    *string    `json:"shipmentId,omitempty"`
+	DriverPhone   *string    `json:"driverPhone,omitempty"`
+	RequestID     *string    `json:"requestId,omitempty"`
+	CaseID        *string    `json:"caseId,omitempty"`
+	Channel       *string    `json:"channel,omitempty"`
+	ChannelUserID *string    `json:"channelUserId,omitempty"`
+	ReplyText     *string    `json:"replyText,omitempty"`
+	Note          *string    `json:"note,omitempty"`
+	Action        string     `json:"action"`
+	FromDockCode  *string    `json:"fromDockCode,omitempty"`
+	FromStart     *time.Time `json:"fromStart,omitempty"`
+	ToDockCode    *string    `json:"toDockCode,omitempty"`
+	ToStart       *time.Time `json:"toStart,omitempty"`
+	ReasonCode    *string    `json:"reasonCode,omitempty"`
+	ChangedAt     time.Time  `json:"changedAt"`
+	Message       string     `json:"message"`
 }
 
 // ChangesAfter returns up to limit booking changes with change_id > after, oldest first, and the newest change id
