@@ -47,7 +47,8 @@ func (f *fakeStore) AssignCase(_ context.Context, id string) (*store.Case, error
 func (f *fakeStore) ResolveCase(_ context.Context, id, reply string) (*store.Case, error) {
 	return &store.Case{CaseID: id, Status: "RESOLVED", ReplyText: &reply}, f.err
 }
-func (f *fakeStore) DecideRequest(_ context.Context, id string, approve bool, _ string) (*store.ApprovalRequest, error) {
+func (f *fakeStore) DecideRequest(ctx context.Context, id string, approve bool, _ string) (*store.ApprovalRequest, error) {
+	fakeSeenUser, _ = utility.GetUserID(ctx)
 	status := map[bool]string{true: "APPROVED", false: "REJECTED"}[approve]
 	return &store.ApprovalRequest{RequestID: id, FacilityID: "FAC-1", Status: status}, f.err
 }
@@ -135,6 +136,7 @@ func TestCoordinatorRoutes(t *testing.T) {
 	code, body, _ = do(t, h, "POST", "/api/approvals/REQ-1/reject", `{"note":"dock D2 is for the reefer load"}`)
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "REJECTED", body["status"])
+	assert.Equal(t, "demo@x.io", fakeSeenUser, "a coordinator's decision is recorded by email")
 	code, _, _ = do(t, h, "POST", "/api/approvals/REQ-1/reject", `{"why":"x"}`)
 	assert.Equal(t, 400, code)
 	assert.Eventually(t, func() bool { return len(sv.replans()) == 2 }, 2*time.Second, 10*time.Millisecond, "each decision re-plans")

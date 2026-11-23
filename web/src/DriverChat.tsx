@@ -140,7 +140,12 @@ export function DriverChat({ now, onChanged }: { now: number; onChanged: () => v
       "YES",
       `POST /api/agent/holds/${holdId}/confirm`,
       async () => {
-        await api.agent.confirm(holdId);
+        const h = await api.agent.confirm(holdId);
+        if (h.outcome === "AWAITING_APPROVAL") {
+          return {
+            text: `This is a priority load, so a coordinator approves the change. Your current slot stands until then. ${(await refresh()).message}`,
+          };
+        }
         return { text: `Confirmed. ${(await refresh()).message}` };
       },
       true,

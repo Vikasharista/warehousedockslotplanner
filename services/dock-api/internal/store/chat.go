@@ -234,7 +234,8 @@ func (s *Store) ThreadMessages(ctx context.Context, threadID string) ([]Message,
 		return nil, err
 	}
 	out := []Message{}
-	err := db.Raw(`SELECT `+messageCols+` FROM chat_messages WHERE thread_id = ? ORDER BY message_ts, chat_message_id`,
+	err := db.Raw(`SELECT `+messageCols+` FROM chat_messages WHERE thread_id = ? AND message_ts <= setuhaul_now()
+		ORDER BY message_ts, chat_message_id`,
 		threadID).Scan(&out).Error
 	return out, errors.RepositoryError(err)
 }
@@ -422,7 +423,7 @@ func (s *Store) SetExceptionStatus(ctx context.Context, id, status string) (*Dri
 func (s *Store) OpenExceptions(ctx context.Context, facilityID string) ([]DriverException, error) {
 	out := []DriverException{}
 	err := s.GetDB(ctx).Raw(exceptionSQL+` WHERE s.destination_facility_id = ?
-		AND x.exception_status NOT IN ('RESOLVED', 'CANCELLED', 'DUPLICATE')
+		AND x.exception_status NOT IN ('RESOLVED', 'CANCELLED', 'DUPLICATE') AND x.reported_at <= setuhaul_now()
 		ORDER BY CASE x.severity_code WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
 		         x.reported_at`, facilityID).Scan(&out).Error
 	return out, errors.RepositoryError(err)

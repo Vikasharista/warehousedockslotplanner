@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, isUnauthenticated, type Board, type Booking, type Change, type Exception, type Me, type RunSummary } from "./api";
 import { Capacity } from "./Capacity";
+import { DriverCases } from "./DriverCases";
 import { DriverChat } from "./DriverChat";
 import { Changes, Details, Exceptions, Holds, Runs } from "./Panels";
 import { Shipments } from "./Shipments";
@@ -9,11 +10,12 @@ import { clock, clockSeconds, date, relative } from "./time";
 
 const POLL_MS = 10_000;
 type Tab = "exceptions" | "changes" | "runs" | "holds";
-type View = "plan" | "shipments" | "capacity" | "chat";
+type View = "plan" | "shipments" | "capacity" | "cases" | "chat";
 const VIEWS: [View, string][] = [
   ["plan", "Plan"],
   ["shipments", "Shipments"],
   ["capacity", "Capacity"],
+  ["cases", "Driver cases"],
   ["chat", "Driver chat"],
 ];
 
@@ -189,6 +191,7 @@ export function App({ me, onSignOut, onSessionExpired }: { me: Me; onSignOut: ()
 
       {view === "shipments" && <Shipments now={now} onChanged={refresh} />}
       {view === "capacity" && <Capacity now={now} onChanged={refresh} />}
+      {view === "cases" && <DriverCases now={now} onChanged={refresh} />}
       {view === "chat" && <DriverChat now={now} onChanged={refresh} />}
 
       {view === "plan" && (

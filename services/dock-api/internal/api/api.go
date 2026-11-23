@@ -14,6 +14,7 @@ import (
 
 	"github.com/Vikasharista/warehousedockslotplanner/services/core-lib/errors"
 	"github.com/Vikasharista/warehousedockslotplanner/services/core-lib/logger"
+	"github.com/Vikasharista/warehousedockslotplanner/services/core-lib/utility"
 	"github.com/Vikasharista/warehousedockslotplanner/services/dock-api/internal/store"
 	"go.uber.org/zap"
 )
@@ -123,6 +124,12 @@ func Handler(st Store, sv Solver, au Auth, keys AgentKeys) http.Handler {
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// A signed-in coordinator is recorded by email (who approved, resolved or took a case), an agent by its name.
+		if user, _ := utility.GetUserID(ctx); !strings.HasPrefix(user, "agent:") {
+			if email, _ := au.Claims(r); email != "" {
+				ctx = utility.WithUser(ctx, email)
+			}
 		}
 		mux.ServeHTTP(w, r.WithContext(ctx))
 	})
