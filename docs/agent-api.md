@@ -4,6 +4,8 @@ The routes a driver-facing agent (for example a WhatsApp bot) calls to answer a 
 their slot, take a delay report, offer and hold another slot, and hear about plan changes. They live in
 [dock-api](../services/dock-api/) under `/api/agent/`.
 
+A Telegram bot built on these routes, with working Python code: [telegram-agent.md](telegram-agent.md).
+
 The plan view's **Driver chat** screen is a test console for these routes: it plays the driver's side and shows the
 call behind every reply.
 
