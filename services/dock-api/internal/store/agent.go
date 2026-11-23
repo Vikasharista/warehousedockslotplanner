@@ -371,12 +371,16 @@ func changeMessage(c *FeedChange) string {
 	case "APPROVED":
 		return fmt.Sprintf("%s: your change is approved. Your slot is now dock %s at %s.%s", id, deref(c.ToDockCode),
 			hmPtr(c.ToStart), note)
-	case "REJECTED":
-		return fmt.Sprintf("%s: the coordinator did not approve dock %s at %s, so your slot stays dock %s at %s.%s", id,
-			deref(c.ToDockCode), hmPtr(c.ToStart), deref(c.FromDockCode), hmPtr(c.FromStart), note)
-	case "EXPIRED":
-		return fmt.Sprintf("%s: your change to dock %s at %s was not approved in time, so your slot stays dock %s at %s.",
-			id, deref(c.ToDockCode), hmPtr(c.ToStart), deref(c.FromDockCode), hmPtr(c.FromStart))
+	case "REJECTED", "EXPIRED":
+		why := "the coordinator did not approve dock %s at %s"
+		if c.Action == "EXPIRED" {
+			why = "your change to dock %s at %s was not approved in time"
+		}
+		head := fmt.Sprintf("%s: "+why, id, deref(c.ToDockCode), hmPtr(c.ToStart))
+		if c.FromDockCode == nil { // the old booking was released meanwhile
+			return head + "; a coordinator will plan your slot." + note
+		}
+		return fmt.Sprintf("%s, so your slot stays dock %s at %s.%s", head, *c.FromDockCode, hmPtr(c.FromStart), note)
 	default: // REPLY
 		return "Message from the dock office: " + deref(c.ReplyText)
 	}

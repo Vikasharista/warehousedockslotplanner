@@ -222,3 +222,53 @@ def test_nothing_plans_on_the_wall_clock():  # W8
         text = path.read_text()
         assert "datetime.now" not in text and "time.time()" not in text, path.name
     assert time.time() > 0
+
+
+# ---------------------------------------------------------------- notices
+class FeedOnly:
+    """The planner's change feed alone."""
+
+    def __init__(self, changes):
+        self.rows = changes
+
+    def changes(self, after, limit=100):
+        rows = [c for c in self.rows if c["changeId"] > after][:limit]
+        last = self.rows[-1]["changeId"] if self.rows else 0
+        return {"changes": rows, "next": rows[-1]["changeId"] if rows else after, "last": last}
+
+    def log_message(self, *a, **kw):
+        pass
+
+
+def test_a_failed_send_does_not_lose_the_other_notices():
+    from setuhaul_agent import notices
+    st = Store(":memory:")
+    for n, shp in ((1, "SHP1003"), (2, "SHP1004")):
+        st.save(Session("TELEGRAM", str(n), chat_id=str(n), state="IDLE", shipment_id=shp, phone=f"+9190000100{n:02d}"))
+    feed = FeedOnly([])
+    assert notices.deliver(feed, st, {}) == 0, "the first poll only sets the cursor"
+    feed.rows = [{"changeId": 1, "kind": "BOOKING", "shipmentId": "SHP1003", "message": "SHP1003 moved"},
+                 {"changeId": 2, "kind": "BOOKING", "shipmentId": "SHP1004", "message": "SHP1004 moved"}]
+    got = []
+
+    def flaky(chat, msg):
+        if chat == "1":
+            raise OSError("whatsapp unreachable")
+        got.append((chat, msg.text))
+    assert notices.deliver(feed, st, {"TELEGRAM": flaky}) == 1
+    assert got == [("2", "SHP1004 moved")]
+    assert st.get("feed_cursor") == "2"
+
+
+def test_a_coordinators_reply_ends_the_hand_over():
+    from setuhaul_agent import notices
+    st = Store(":memory:")
+    st.save(Session("TELEGRAM", "7", chat_id="7", state="ESCALATED", shipment_id="SHP1007", ctx={"escalation_id": "CASE-1"}))
+    feed = FeedOnly([{"changeId": 1, "kind": "BOOKING", "shipmentId": "SHP9", "message": "x"}])
+    notices.deliver(feed, st, {})
+    feed.rows.append({"changeId": 2, "kind": "REPLY", "caseId": "CASE-1", "message": "Message from the dock office: ok"})
+    got = []
+    notices.deliver(feed, st, {"TELEGRAM": lambda chat, m: got.append((chat, m.text))})
+    assert got == [("7", "Message from the dock office: ok")]
+    s = st.session("TELEGRAM", "7")
+    assert s.state == "IDLE" and "escalation_id" not in s.ctx

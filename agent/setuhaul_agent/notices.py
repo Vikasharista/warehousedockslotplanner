@@ -75,12 +75,13 @@ def poll(planner: Planner, store: Store) -> list[tuple[Session, OutboundMessage]
         s = _target(sessions, c)
         if s is None:
             continue
-        if c.get("kind") == "REPLY" and s.state in ("ESCALATED", "UNVERIFIED"):
-            s.state = "IDLE" if s.shipment_id else "NEW"
-            s.ctx.pop("escalation_id", None)
-            store.save(s)
-        if c.get("kind") == "APPROVAL":
-            s.ctx.pop("approval_request", None)
+        if c.get("kind") in ("REPLY", "APPROVAL"):
+            s = store.session(s.channel, s.channel_user_id)  # re-read just before writing: a message may have moved it on
+            if c["kind"] == "REPLY" and s.state in ("ESCALATED", "UNVERIFIED"):
+                s.state = "IDLE" if s.shipment_id else "NEW"
+                s.ctx.pop("escalation_id", None)
+            if c["kind"] == "APPROVAL":
+                s.ctx.pop("approval_request", None)
             store.save(s)
         out.append((s, OutboundMessage(c["message"])))
     store.put(CURSOR, str(cursor))
@@ -96,7 +97,11 @@ def deliver(planner: Planner, store: Store, senders: dict) -> int:
         if send is None:
             log.info("no sender for %s; notice for %s skipped", s.channel, s.shipment_id)
             continue
-        send(s.chat_id or s.channel_user_id, msg)
+        try:
+            send(s.chat_id or s.channel_user_id, msg)
+        except Exception:  # one failed send must not lose the other notices (the cursor has moved on)
+            log.exception("could not send a notice to %s on %s", s.chat_id, s.channel)
+            continue
         if s.thread_id:
             try:
                 planner.log_message(s.thread_id, "AGENT", msg.text)

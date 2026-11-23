@@ -236,7 +236,7 @@ func TestThreadsMessagesExceptionsAndCases(t *testing.T) {
 	m, err := s.LogMessage(ctx, th.ThreadID, NewMessage{SenderType: "DRIVER", Text: "1 hour late", ExternalMessageID: "tg:5:77"})
 	require.NoError(t, err)
 	assert.False(t, m.Duplicate)
-	assert.Equal(t, "agent:telegram", *m.SenderReference)
+	assert.Equal(t, "DRV009", *m.SenderReference, "a driver's message names the driver")
 	dup, err := s.LogMessage(ctx, th.ThreadID, NewMessage{SenderType: "DRIVER", Text: "1 hour late", ExternalMessageID: "tg:5:77"})
 	require.NoError(t, err)
 	assert.True(t, dup.Duplicate)
@@ -362,4 +362,14 @@ func TestTripStatusCarriesThePlannersClockAndRules(t *testing.T) {
 	assert.Equal(t, 30, f.GateBufferMin)
 	assert.Equal(t, "21:00", *f.LastStartTime)
 	assert.NotEmpty(t, f.OpenTime)
+}
+
+func TestADecisionAfterTheOldBookingWasReleasedSaysACoordinatorPlansTheSlot(t *testing.T) {
+	d, at := "D2", time.Date(2026, 8, 4, 8, 30, 0, 0, time.UTC)
+	id := "SHP1009"
+	c := &FeedChange{Kind: "APPROVAL", Action: "REJECTED", ShipmentID: &id, ToDockCode: &d, ToStart: &at}
+	assert.Equal(t, "SHP1009: the coordinator did not approve dock D2 at 14:00; a coordinator will plan your slot.",
+		changeMessage(c))
+	c.Action = "EXPIRED"
+	assert.Contains(t, changeMessage(c), "was not approved in time; a coordinator will plan your slot.")
 }

@@ -187,8 +187,13 @@ func (s *Store) LogMessage(ctx context.Context, threadID string, in NewMessage) 
 		return nil, errors.NewBadRequestError("externalMessageId (200) or parsedIntent (40) is too long")
 	}
 	db := s.GetDB(ctx)
-	if _, err := getThread(db, threadID); err != nil {
+	t, err := getThread(db, threadID)
+	if err != nil {
 		return nil, err
+	}
+	sender := actor(ctx) // who logged it; a driver's own message names the driver
+	if in.SenderType == "DRIVER" {
+		sender = t.DriverID
 	}
 	nullable := func(v string) interface{} {
 		if v == "" {
@@ -205,7 +210,7 @@ func (s *Store) LogMessage(ctx context.Context, threadID string, in NewMessage) 
 			message_ts, external_message_id, is_duplicate, parsed_intent, extracted_eta_ts, requires_human_review)
 		VALUES (?, ?, ?, ?, ?, setuhaul_now(), ?, 0, ?, ?, ?)
 		ON CONFLICT (thread_id, external_message_id) WHERE external_message_id IS NOT NULL DO NOTHING`,
-		id, threadID, in.SenderType, actor(ctx), in.Text, nullable(in.ExternalMessageID), nullable(in.ParsedIntent),
+		id, threadID, in.SenderType, sender, in.Text, nullable(in.ExternalMessageID), nullable(in.ParsedIntent),
 		in.ExtractedEta, review)
 	if res.Error != nil {
 		return nil, errors.RepositoryError(res.Error)
