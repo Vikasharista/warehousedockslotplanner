@@ -65,7 +65,7 @@ you choose, and a nightly reset to the start of the demo day.
 | [`solver/`](solver/) | The dock-sequencing solver | Java 17+, Maven, Timefold Solver |
 | [`services/`](services/) | [`dock-api`](services/dock-api/): the plan view's API and driver holds (hold, confirm, release). [`core-lib`](services/core-lib/): the Go services' shared library | Go 1.24+ |
 | [`web/`](web/) | The plan view (dock sequence, exceptions, change log, runs, driver holds) and the Shipments, Capacity and Driver chat screens | React, TypeScript, Vite |
-| [`docs/`](docs/) | Data audit report, [driver agent API](docs/agent-api.md), [deployment](docs/deploy.md), [verification matrix](docs/verification.md), [phase 6 results](docs/results/phase6/) ([readout](https://claude.ai/artifact/5Hawn7Pmg39pbhSTFByMFs)) | Markdown |
+| [`docs/`](docs/) | Data audit report, [driver agent API](docs/agent-api.md) and its [Telegram bot guide](docs/telegram-agent.md), [deployment](docs/deploy.md), [verification matrix](docs/verification.md), [phase 6 results](docs/results/phase6/) ([readout](https://claude.ai/artifact/5Hawn7Pmg39pbhSTFByMFs)) | Markdown |
 | [`scripts/`](scripts/) | `break-and-defend.sh`: rebuilds the baseline comparison and scale tables | Bash |
 
 Postgres is the runtime database. The SQLite file is kept unchanged as the seed source.
