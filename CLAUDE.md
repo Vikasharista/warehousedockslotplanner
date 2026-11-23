@@ -59,3 +59,14 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   (`early_release_min`, reason `ARRIVING_EARLY`): it may take a free earlier slot; nobody else moves for it.
 - Every availability check (driver options and holds, the solver's view of side holds, validator V3, the commit's
   stale check) counts a booking's whole unload, not only its slot.
+- The driver chat agent lives in `agent/` (Python) and talks to the planner only through dock-api's `/api/agent/*`:
+  no SQL in `agent/`. Chat threads and messages, driver exceptions, coordinator cases (`coordinator_cases`) and
+  approval requests (`slot_change_requests`) are planner data; the agent keeps only its sessions and duplicate-message
+  log in its own SQLite file. Phase 7 plan: https://claude.ai/artifact/CEhBRBoLMYFSsm8Yce24ny
+- A driver's slot change for a HIGH or CRITICAL load (`approval_priorities`) needs a coordinator: confirm answers
+  202 `AWAITING_APPROVAL`, the old booking stays current and the held slot is reserved for 60 minutes
+  (`approval_reserve_min`). Approve swaps the bookings under the booking lock; reject or expiry releases the
+  reservation and keeps the old booking. The sweeper, the solver loader and validator V3 read a reservation's expiry
+  from its request. Outcomes and coordinator replies reach the driver on the change feed (`kind` APPROVAL, REPLY).
+- A truck may change its slot by chat at most `max_chat_reschedules` (2) times; dock-api enforces it on hold and
+  confirm. Coordinators work approvals, cases and open exceptions on the Driver cases screen.

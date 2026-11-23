@@ -146,6 +146,7 @@ func TestOptionsFollowTheSolverRules(t *testing.T) {
 
 func TestSideHoldThenConfirmReplacesTheBooking(t *testing.T) {
 	s := open(t)
+	s.settings.ApprovalPriorities = nil // SHP1009 is CRITICAL; approvals have their own tests (phase7_test.go)
 	ctx := context.Background()
 	opts, err := s.Options(ctx, "SHP1009", 2)
 	require.NoError(t, err)

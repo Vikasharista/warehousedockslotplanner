@@ -45,6 +45,17 @@ type Store interface {
 	SetDockStatus(ctx context.Context, facilityID, dockID, status string) (string, error)
 	RequestJob(ctx context.Context, id int64) (*store.RequestJob, error)
 	Now(ctx context.Context) (time.Time, error)
+	OpenThread(ctx context.Context, shipmentID, intent string) (*store.Thread, bool, error)
+	UpdateThread(ctx context.Context, id string, in store.ThreadUpdate) (*store.Thread, error)
+	LogMessage(ctx context.Context, threadID string, in store.NewMessage) (*store.Message, error)
+	ThreadMessages(ctx context.Context, threadID string) ([]store.Message, error)
+	ReportException(ctx context.Context, in store.ExceptionReport) (*store.DriverException, bool, error)
+	SetExceptionStatus(ctx context.Context, id, status string) (*store.DriverException, error)
+	OpenCase(ctx context.Context, in store.NewCase) (*store.Case, error)
+	AssignCase(ctx context.Context, id string) (*store.Case, error)
+	ResolveCase(ctx context.Context, id, reply string) (*store.Case, error)
+	DecideRequest(ctx context.Context, id string, approve bool, note string) (*store.ApprovalRequest, error)
+	DriverCasesView(ctx context.Context, facilityID string) (*store.DriverCases, error)
 }
 
 // Auth signs users in and checks sessions (internal/auth).
@@ -69,6 +80,7 @@ var statusByCode = map[string]int{
 	store.SlotUnavailableCode:       http.StatusConflict,
 	store.HoldConflictCode:          http.StatusConflict,
 	store.HoldExpiredCode:           http.StatusConflict,
+	store.RescheduleLimitCode:       http.StatusConflict,
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -82,6 +94,7 @@ func Handler(st Store, sv Solver, au Auth, keys AgentKeys) http.Handler {
 	mux := http.NewServeMux()
 	h.registerAgent(mux)
 	h.registerInputs(mux)
+	h.registerCases(mux)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.HandleFunc("POST /api/auth/logout", h.logout)
 	mux.HandleFunc("GET /api/auth/me", h.me)
@@ -99,7 +112,7 @@ func Handler(st Store, sv Solver, au Auth, keys AgentKeys) http.Handler {
 	mux.HandleFunc("GET /api/shipments/{shipment}/options", h.options)
 	mux.HandleFunc("POST /api/holds", h.createHold)
 	mux.HandleFunc("GET /api/holds/{hold}", h.hold(h.st.GetHold))
-	mux.HandleFunc("POST /api/holds/{hold}/confirm", h.hold(h.st.ConfirmHold))
+	mux.HandleFunc("POST /api/holds/{hold}/confirm", h.confirmHold)
 	mux.HandleFunc("POST /api/holds/{hold}/release", h.hold(h.st.ReleaseHold))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if open[r.URL.Path] {

@@ -45,7 +45,9 @@ type AgentShipment struct {
 	PlanStatus       *string       `json:"planStatus,omitempty"`
 	PlanReason       *string       `json:"planReason,omitempty"`
 	PredictedWaitMin *int          `json:"predictedWaitMin,omitempty"`
-	Message          string        `json:"message"`
+	// Approval is the slot change waiting for a coordinator (HIGH and CRITICAL loads), if any.
+	Approval *ApprovalRequest `json:"approvalRequest,omitempty"`
+	Message  string           `json:"message"`
 }
 
 var nonDigits = regexp.MustCompile(`\D`)
@@ -116,7 +118,7 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 		SELECT a.appointment_id, a.slot_id, dk.dock_code, sl.slot_start_ts AS start, sl.slot_end_ts AS "end",
 		       a.appointment_status AS status, a.booking_source AS source,
 		       CASE WHEN a.appointment_status = 'PENDING_CONFIRMATION'
-		            THEN a.booked_at + make_interval(mins => ?) END AS expires_at
+		            THEN hold_expires_at(a.appointment_id, a.booked_at, ?) END AS expires_at
 		FROM appointments a
 		JOIN appointment_slots sl ON sl.slot_id = a.slot_id
 		JOIN docks dk ON dk.dock_id = sl.dock_id
@@ -130,6 +132,15 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 			out.Hold = &b
 		} else if out.Booking == nil {
 			out.Booking = &b
+		}
+	}
+	if out.Hold != nil {
+		req, err := requestForHold(db, out.Hold.AppointmentID)
+		if err != nil {
+			return nil, err
+		}
+		if req != nil && req.Status == RequestPending {
+			out.Approval = req
 		}
 	}
 	var plan []struct {
@@ -184,6 +195,10 @@ func driverMessage(a *AgentShipment) string {
 			a.Booking.DockCode, hm(a.Booking.Start))
 	case a.GateIn != nil:
 		return fmt.Sprintf("You are checked in at the gate since %s. A dock will be assigned shortly.", hm(*a.GateIn))
+	case a.Approval != nil && a.Booking != nil:
+		return fmt.Sprintf("Your change to dock %s at %s is waiting for a coordinator until %s. Until then your slot "+
+			"stays dock %s at %s.", a.Approval.ToDockCode, hm(a.Approval.ToStart), hm(a.Approval.ExpiresAt),
+			a.Booking.DockCode, hm(a.Booking.Start))
 	case a.Hold != nil && a.Hold.ExpiresAt != nil:
 		return fmt.Sprintf("You are holding dock %s at %s until %s. Confirm to keep it, or it is released.",
 			a.Hold.DockCode, hm(a.Hold.Start), hm(*a.Hold.ExpiresAt))
@@ -202,12 +217,20 @@ func driverMessage(a *AgentShipment) string {
 	}
 }
 
-// Change is one booking change for the agent, newest last.
+// FeedChange is one change for the agent, oldest first: a booking the solver made, moved or released (kind
+// BOOKING), a coordinator's decision on a slot change (APPROVAL) or a coordinator's reply to a case (REPLY).
 type FeedChange struct {
-	ChangeID     int64      `json:"changeId"`
-	ShipmentID   string     `json:"shipmentId"`
-	DriverPhone  string     `json:"driverPhone"`
-	Action       string     `json:"action"`
+	ChangeID      int64   `json:"changeId"`
+	Kind          string  `json:"kind"`
+	ShipmentID    *string `json:"shipmentId,omitempty"`
+	DriverPhone   *string `json:"driverPhone,omitempty"`
+	RequestID     *string `json:"requestId,omitempty"`
+	CaseID        *string `json:"caseId,omitempty"`
+	Channel       *string `json:"channel,omitempty"`
+	ChannelUserID *string `json:"channelUserId,omitempty"`
+	ReplyText     *string `json:"replyText,omitempty"`
+	Note          *string `json:"note,omitempty"`
+	Action        string  `json:"action"`
 	FromDockCode *string    `json:"fromDockCode,omitempty"`
 	FromStart    *time.Time `json:"fromStart,omitempty"`
 	ToDockCode   *string    `json:"toDockCode,omitempty"`
@@ -226,12 +249,15 @@ func (s *Store) ChangesAfter(ctx context.Context, after int64, limit int) ([]Fee
 		return nil, 0, errors.RepositoryError(err)
 	}
 	if err := s.GetDB(ctx).Raw(`
-		SELECT c.change_id, c.shipment_id, d.phone AS driver_phone, c.action, fd.dock_code AS from_dock_code,
-		       fs.slot_start_ts AS from_start, td.dock_code AS to_dock_code, ts.slot_start_ts AS to_start,
-		       c.reason_code, c.changed_at
+		SELECT c.change_id, c.kind, c.shipment_id, COALESCE(d.phone, cc.phone) AS driver_phone, c.request_id,
+		       c.case_id, cc.channel, cc.channel_user_id, c.message_text AS reply_text,
+		       CASE WHEN c.kind = 'APPROVAL' THEN c.detail END AS note, c.action,
+		       fd.dock_code AS from_dock_code, fs.slot_start_ts AS from_start, td.dock_code AS to_dock_code,
+		       ts.slot_start_ts AS to_start, c.reason_code, c.changed_at
 		FROM booking_changes c
-		JOIN shipments s ON s.shipment_id = c.shipment_id
-		JOIN drivers d ON d.driver_id = s.driver_id
+		LEFT JOIN shipments s ON s.shipment_id = c.shipment_id
+		LEFT JOIN drivers d ON d.driver_id = s.driver_id
+		LEFT JOIN coordinator_cases cc ON cc.case_id = c.case_id
 		LEFT JOIN appointment_slots fs ON fs.slot_id = c.from_slot_id
 		LEFT JOIN docks fd ON fd.dock_id = fs.dock_id
 		LEFT JOIN appointment_slots ts ON ts.slot_id = c.to_slot_id
@@ -248,15 +274,31 @@ func (s *Store) ChangesAfter(ctx context.Context, after int64, limit int) ([]Fee
 }
 
 func changeMessage(c *FeedChange) string {
+	id := deref(c.ShipmentID)
+	note := ""
+	if c.Note != nil && *c.Note != "" {
+		note = " Coordinator's note: " + *c.Note
+	}
 	switch c.Action {
 	case "NEW":
-		return fmt.Sprintf("%s is booked on dock %s at %s.", c.ShipmentID, deref(c.ToDockCode), hmPtr(c.ToStart))
+		return fmt.Sprintf("%s is booked on dock %s at %s.", id, deref(c.ToDockCode), hmPtr(c.ToStart))
 	case "MOVED":
-		return fmt.Sprintf("%s moved from dock %s at %s to dock %s at %s because %s.", c.ShipmentID,
+		return fmt.Sprintf("%s moved from dock %s at %s to dock %s at %s because %s.", id,
 			deref(c.FromDockCode), hmPtr(c.FromStart), deref(c.ToDockCode), hmPtr(c.ToStart), words(c.ReasonCode))
-	default:
-		return fmt.Sprintf("%s lost its slot (dock %s at %s) because %s; a coordinator will follow up.", c.ShipmentID,
+	case "RELEASED":
+		return fmt.Sprintf("%s lost its slot (dock %s at %s) because %s; a coordinator will follow up.", id,
 			deref(c.FromDockCode), hmPtr(c.FromStart), words(c.ReasonCode))
+	case "APPROVED":
+		return fmt.Sprintf("%s: your change is approved. Your slot is now dock %s at %s.%s", id, deref(c.ToDockCode),
+			hmPtr(c.ToStart), note)
+	case "REJECTED":
+		return fmt.Sprintf("%s: the coordinator did not approve dock %s at %s, so your slot stays dock %s at %s.%s", id,
+			deref(c.ToDockCode), hmPtr(c.ToStart), deref(c.FromDockCode), hmPtr(c.FromStart), note)
+	case "EXPIRED":
+		return fmt.Sprintf("%s: your change to dock %s at %s was not approved in time, so your slot stays dock %s at %s.",
+			id, deref(c.ToDockCode), hmPtr(c.ToStart), deref(c.FromDockCode), hmPtr(c.FromStart))
+	default: // REPLY
+		return "Message from the dock office: " + deref(c.ReplyText)
 	}
 }
 

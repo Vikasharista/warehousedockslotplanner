@@ -61,7 +61,7 @@ func (h *handlers) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/agent/shipments/{shipment}/options", h.options)
 	mux.HandleFunc("POST /api/agent/shipments/{shipment}/eta", h.shipment(h.agentETA))
 	mux.HandleFunc("POST /api/agent/holds", h.createHold)
-	mux.HandleFunc("POST /api/agent/holds/{hold}/confirm", h.hold(h.st.ConfirmHold))
+	mux.HandleFunc("POST /api/agent/holds/{hold}/confirm", h.confirmHold)
 	mux.HandleFunc("POST /api/agent/holds/{hold}/release", h.hold(h.st.ReleaseHold))
 	mux.HandleFunc("GET /api/agent/changes", h.changesFeed)
 }

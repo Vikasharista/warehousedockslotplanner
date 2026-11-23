@@ -18,11 +18,28 @@ type Settings struct {
 	LowConfidenceMarginMin int
 	HorizonHours           int
 	HoldExpiryMin          int
+	// ApprovalPriorities are the priorities whose slot changes by a driver need a coordinator's approval.
+	ApprovalPriorities []string
+	// ApprovalReserveMin is how long a slot stays reserved for a truck while its change waits for approval.
+	ApprovalReserveMin int
+	// MaxChatReschedules is how many times a truck may change its booked slot by chat.
+	MaxChatReschedules int
 }
 
 // DefaultSettings are the plan's defaults.
 func DefaultSettings() Settings {
-	return Settings{GateBufferMin: 30, LowConfidenceMarginMin: 15, HorizonHours: 12, HoldExpiryMin: 15}
+	return Settings{GateBufferMin: 30, LowConfidenceMarginMin: 15, HorizonHours: 12, HoldExpiryMin: 15,
+		ApprovalPriorities: []string{"HIGH", "CRITICAL"}, ApprovalReserveMin: 60, MaxChatReschedules: 2}
+}
+
+// needsApproval reports whether a driver's slot change for this priority waits for a coordinator.
+func (s Settings) needsApproval(priority string) bool {
+	for _, p := range s.ApprovalPriorities {
+		if p == priority {
+			return true
+		}
+	}
+	return false
 }
 
 // Store wraps the database.

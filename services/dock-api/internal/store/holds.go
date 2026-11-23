@@ -19,6 +19,12 @@ const (
 	HoldConflictCode = "HOLD_CONFLICT"
 	// HoldExpiredCode: the hold ran out before the driver confirmed.
 	HoldExpiredCode = "HOLD_EXPIRED"
+	// RescheduleLimitCode: the truck already changed its slot by chat as often as allowed (max_chat_reschedules).
+	RescheduleLimitCode = "RESCHEDULE_LIMIT"
+	// OutcomeConfirmed and OutcomeAwaitingApproval say what a confirm did: the hold became the booking, or it waits
+	// for a coordinator (HIGH and CRITICAL loads) with the slot reserved and the old booking kept.
+	OutcomeConfirmed        = "CONFIRMED"
+	OutcomeAwaitingApproval = "AWAITING_APPROVAL"
 )
 
 // Option is a slot a driver may hold.
@@ -150,13 +156,19 @@ type Hold struct {
 	ConfirmedAt   *time.Time `json:"confirmedAt,omitempty"`
 	CancelledAt   *time.Time `json:"cancelledAt,omitempty"`
 	FacilityID    string     `json:"facilityId"`
+	PriorityCode  string     `json:"priorityCode"`
+	// Outcome is set by confirm: CONFIRMED, or AWAITING_APPROVAL with the request in Approval.
+	Outcome  string           `json:"outcome,omitempty"`
+	Approval *ApprovalRequest `json:"approvalRequest,omitempty" gorm:"-"`
 }
 
 func (s *Store) hold(db *gorm.DB, id string, forUpdate bool) (*Hold, error) {
 	q := `SELECT a.appointment_id, a.shipment_id, a.slot_id, a.appointment_status AS status, a.is_current = 1 AS is_current,
 	             a.replaced_appointment_id AS replaces_id, a.booked_at,
-	             a.booked_at + make_interval(mins => ?) AS expires_at, a.confirmed_at, a.cancelled_at, sl.facility_id
+	             hold_expires_at(a.appointment_id, a.booked_at, ?) AS expires_at, a.confirmed_at, a.cancelled_at,
+	             sl.facility_id, s.priority_code
 	      FROM appointments a JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+	      JOIN shipments s ON s.shipment_id = a.shipment_id
 	      WHERE a.appointment_id = ? AND a.booking_source = 'DRIVER_CHAT'`
 	if forUpdate {
 		q += " FOR UPDATE OF a"
@@ -168,7 +180,13 @@ func (s *Store) hold(db *gorm.DB, id string, forUpdate bool) (*Hold, error) {
 	if len(holds) == 0 {
 		return nil, errors.NewRecordNotFoundError("no driver hold " + id)
 	}
-	return &holds[0], nil
+	h := &holds[0]
+	req, err := requestForHold(db, id)
+	if err != nil {
+		return nil, err
+	}
+	h.Approval = req
+	return h, nil
 }
 
 // GetHold returns one hold.
@@ -226,6 +244,9 @@ func (s *Store) CreateHold(ctx context.Context, shipmentID, slotID string) (*Hol
 			if current[0].Status == "IN_PROGRESS" {
 				return errors.New(HoldConflictCode, shipmentID+" is already unloading")
 			}
+			if err := s.checkRescheduleLimit(db, shipmentID); err != nil {
+				return err
+			}
 			isCurrent, replaces = 0, &current[0].AppointmentID
 		}
 		id := "APT-H-" + strings.ToUpper(uuid.NewString()[:13])
@@ -245,29 +266,105 @@ func (s *Store) CreateHold(ctx context.Context, shipmentID, slotID string) (*Hol
 }
 
 // ConfirmHold turns a live hold into the shipment's current CONFIRMED booking, cancelling the booking it replaces.
+// A HIGH or CRITICAL truck changing a booked slot (approval_priorities) is not moved yet: the hold stays, reserved
+// until the request's expiry (approval_reserve_min), the old booking stays current, and the outcome is
+// AWAITING_APPROVAL until a coordinator approves or rejects it. Confirming again while it waits returns the same request.
 func (s *Store) ConfirmHold(ctx context.Context, id string) (*Hold, error) {
-	return s.changeHold(ctx, id, func(db *gorm.DB, h *Hold, now time.Time) error {
+	outcome := OutcomeConfirmed
+	h, err := s.changeHold(ctx, id, func(db *gorm.DB, h *Hold, now time.Time) error {
 		if !now.Before(h.ExpiresAt) {
 			return errors.New(HoldExpiredCode, fmt.Sprintf("hold %s expired at %s", id, h.ExpiresAt.Format(time.RFC3339)))
 		}
-		if !h.IsCurrent && h.ReplacesID != nil {
-			if err := db.Exec(`UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0,
-					cancelled_at = setuhaul_now(), cancellation_reason = 'replaced by the driver''s choice ' || ?,
-					updated_at = setuhaul_now()
-				WHERE appointment_id = ? AND is_current = 1 AND appointment_status = 'CONFIRMED'`,
-				id, *h.ReplacesID).Error; err != nil {
-				return errors.RepositoryError(err)
+		if h.Approval != nil && h.Approval.Status == RequestPending {
+			outcome = OutcomeAwaitingApproval
+			return nil
+		}
+		current, err := currentBooking(db, h.ShipmentID, id)
+		if err != nil {
+			return err
+		}
+		if current != nil {
+			if err := s.checkRescheduleLimit(db, h.ShipmentID); err != nil {
+				return err
+			}
+			if s.settings.needsApproval(h.PriorityCode) {
+				outcome = OutcomeAwaitingApproval
+				return s.requestApproval(ctx, db, h, current, now)
 			}
 		}
-		return errors.RepositoryError(db.Exec(`UPDATE appointments SET appointment_status = 'CONFIRMED', is_current = 1,
-				confirmed_at = setuhaul_now(), updated_at = setuhaul_now()
-			WHERE appointment_id = ?`, id).Error)
+		return swapIn(db, h, "replaced by the driver's choice "+id)
 	})
+	if err != nil {
+		return nil, err
+	}
+	h.Outcome = outcome
+	return h, nil
+}
+
+// currentBooking returns the shipment's current CONFIRMED or IN_PROGRESS booking other than the hold, if any.
+func currentBooking(db *gorm.DB, shipmentID, holdID string) (*AgentBooking, error) {
+	var rows []AgentBooking
+	if err := db.Raw(`SELECT a.appointment_id, a.slot_id, a.appointment_status AS status, a.booking_source AS source,
+			sl.slot_start_ts AS start, sl.slot_end_ts AS "end", dk.dock_code
+		FROM appointments a JOIN appointment_slots sl ON sl.slot_id = a.slot_id JOIN docks dk ON dk.dock_id = sl.dock_id
+		WHERE a.shipment_id = ? AND a.appointment_id <> ? AND a.is_current = 1
+		  AND a.appointment_status IN ('CONFIRMED', 'IN_PROGRESS')`, shipmentID, holdID).Scan(&rows).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
+}
+
+// swapIn makes the hold the shipment's current CONFIRMED booking, cancelling whatever booking is current now (the one
+// it was held beside, or the solver's move of it since). The caller holds the facility's booking lock.
+func swapIn(db *gorm.DB, h *Hold, why string) error {
+	current, err := currentBooking(db, h.ShipmentID, h.AppointmentID)
+	if err != nil {
+		return err
+	}
+	if current != nil {
+		if current.Status == "IN_PROGRESS" {
+			return errors.New(HoldConflictCode, h.ShipmentID+" is already unloading")
+		}
+		if err := db.Exec(`UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0,
+				cancelled_at = setuhaul_now(), cancellation_reason = ?, updated_at = setuhaul_now()
+			WHERE appointment_id = ?`, why, current.AppointmentID).Error; err != nil {
+			return errors.RepositoryError(err)
+		}
+	}
+	return errors.RepositoryError(db.Exec(`UPDATE appointments SET appointment_status = 'CONFIRMED', is_current = 1,
+			confirmed_at = setuhaul_now(), updated_at = setuhaul_now()
+		WHERE appointment_id = ?`, h.AppointmentID).Error)
+}
+
+// checkRescheduleLimit refuses another chat change once the truck has made max_chat_reschedules of them.
+func (s *Store) checkRescheduleLimit(db *gorm.DB, shipmentID string) error {
+	if s.settings.MaxChatReschedules <= 0 {
+		return nil
+	}
+	var used int64
+	if err := db.Raw(`SELECT count(*) FROM appointments WHERE shipment_id = ? AND booking_source = 'DRIVER_CHAT'
+		AND confirmed_at IS NOT NULL AND replaced_appointment_id IS NOT NULL`, shipmentID).Scan(&used).Error; err != nil {
+		return errors.RepositoryError(err)
+	}
+	if int(used) >= s.settings.MaxChatReschedules {
+		return errors.New(RescheduleLimitCode, fmt.Sprintf("%s already changed its slot %d times by chat; a coordinator "+
+			"plans any further change", shipmentID, used))
+	}
+	return nil
 }
 
 // ReleaseHold cancels a hold at the driver's request.
+// A request waiting for approval is withdrawn with it; the old booking stays.
 func (s *Store) ReleaseHold(ctx context.Context, id string) (*Hold, error) {
 	return s.changeHold(ctx, id, func(db *gorm.DB, h *Hold, _ time.Time) error {
+		if h.Approval != nil && h.Approval.Status == RequestPending {
+			if err := decideRequest(db, h.Approval.RequestID, RequestWithdrawn, "driver", "released by the driver"); err != nil {
+				return err
+			}
+		}
 		return errors.RepositoryError(db.Exec(`UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0,
 				cancelled_at = setuhaul_now(), cancellation_reason = 'released by the driver', updated_at = setuhaul_now()
 			WHERE appointment_id = ?`, id).Error)
@@ -304,14 +401,18 @@ func (s *Store) changeHold(ctx context.Context, id string, change func(*gorm.DB,
 	return out, err
 }
 
-// ExpireHolds cancels every hold past its expiry, facility by facility under the booking lock. Returns how many.
+// ExpireHolds ends what has run out, facility by facility under the booking lock: first approval requests past
+// their expiry (the reservation is released, the old booking stays, an EXPIRED notice goes on the driver feed), then
+// every other hold past its expiry. Returns how many holds it cancelled.
 func (s *Store) ExpireHolds(ctx context.Context) (int, error) {
 	var facilities []string
-	if err := s.GetDB(ctx).Raw(`SELECT DISTINCT sl.facility_id FROM appointments a
-		JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+	if err := s.GetDB(ctx).Raw(`
+		SELECT sl.facility_id FROM appointments a JOIN appointment_slots sl ON sl.slot_id = a.slot_id
 		WHERE a.appointment_status = 'PENDING_CONFIRMATION'
-		  AND a.booked_at + make_interval(mins => ?) <= setuhaul_now()`, s.settings.HoldExpiryMin).
-		Scan(&facilities).Error; err != nil {
+		  AND hold_expires_at(a.appointment_id, a.booked_at, ?) <= setuhaul_now()
+		UNION
+		SELECT facility_id FROM slot_change_requests WHERE request_status = 'PENDING' AND expires_at <= setuhaul_now()`,
+		s.settings.HoldExpiryMin).Scan(&facilities).Error; err != nil {
 		return 0, errors.RepositoryError(err)
 	}
 	total := 0
@@ -321,11 +422,25 @@ func (s *Store) ExpireHolds(ctx context.Context) (int, error) {
 			if err := lockFacility(db, f); err != nil {
 				return errors.RepositoryError(err)
 			}
+			var expired []string
+			if err := db.Raw(`SELECT request_id FROM slot_change_requests WHERE facility_id = ?
+				AND request_status = 'PENDING' AND expires_at <= setuhaul_now() FOR UPDATE`, f).Scan(&expired).Error; err != nil {
+				return errors.RepositoryError(err)
+			}
+			for _, id := range expired {
+				if err := decideRequest(db, id, RequestExpired, "system", "no coordinator answered in time"); err != nil {
+					return err
+				}
+			}
 			res := db.Exec(`UPDATE appointments a SET appointment_status = 'CANCELLED', is_current = 0,
-					cancelled_at = setuhaul_now(), cancellation_reason = 'HOLD_EXPIRED', updated_at = setuhaul_now()
+					cancelled_at = setuhaul_now(),
+					cancellation_reason = CASE WHEN EXISTS (SELECT 1 FROM slot_change_requests r
+					    WHERE r.hold_appointment_id = a.appointment_id AND r.request_status = 'EXPIRED')
+					  THEN 'APPROVAL_EXPIRED' ELSE 'HOLD_EXPIRED' END,
+					updated_at = setuhaul_now()
 				FROM appointment_slots sl
 				WHERE sl.slot_id = a.slot_id AND sl.facility_id = ? AND a.appointment_status = 'PENDING_CONFIRMATION'
-				  AND a.booked_at + make_interval(mins => ?) <= setuhaul_now()`, f, s.settings.HoldExpiryMin)
+				  AND hold_expires_at(a.appointment_id, a.booked_at, ?) <= setuhaul_now()`, f, s.settings.HoldExpiryMin)
 			total += int(res.RowsAffected)
 			return errors.RepositoryError(res.Error)
 		})
