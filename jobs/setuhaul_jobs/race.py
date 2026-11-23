@@ -5,12 +5,15 @@ Against a running stack (docker compose up), for --seconds:
   * driver threads hold a free slot through the agent API, then confirm or release it;
   * same-slot bursts: several drivers try to hold ONE slot at the same instant (exactly one may win);
   * a solver thread asks for a re-plan and commit in a loop;
-  * a coordinator thread blocks and reopens free slots through dock-api.
-Afterwards (after one quiet re-plan) it checks:
+  * a coordinator thread blocks and reopens free slots through dock-api;
+  * an approver thread decides HIGH and CRITICAL changes waiting for approval (phase 7: a driver's confirm of such a
+    truck answers 202 and reserves the slot), approving some and rejecting others.
+Afterwards (every change still waiting is decided, then one quiet re-plan) it checks:
   I1 no slot has two active bookings;           I2 no truck has two current active bookings;
   I3 no two active bookings overlap on a dock;  I4 every committed run passed the validator;
   I5 every rejected run says why;               I6 every same-slot burst had at most one winner;
-  I7 no request failed with a server error (5xx).
+  I7 no request failed with a server error (5xx);
+  I8 every reservation was released or decided, and each hold matches its request's outcome.
 
     python -m setuhaul_jobs.race --database-url postgresql://postgres:postgres@localhost:55432/setuhaul \\
         [--api http://localhost:8082] [--solver http://localhost:8081] [--seconds 60] [--drivers 6] [--json out.json]
@@ -190,6 +193,31 @@ def coordinator(coord: Http, conn_url: str, stop: threading.Event, tally: Tally,
             time.sleep(rng.uniform(0.5, 2))
 
 
+def decide(coord: Http, tally: Tally, rng: random.Random, all_pending: bool = False) -> int:
+    """Approves (60 %) or rejects the changes waiting on the Driver cases screen: one, or all of them."""
+    code, view = coord.call("GET", f"/api/facilities/{FACILITY}/driver-cases")
+    if code != 200:
+        tally.add(f"driver-cases {_status(code)}", f"driver-cases: {code} {view}" if code >= 500 else None)
+        return 0
+    pending = view.get("approvals", []) if isinstance(view, dict) else []
+    for req in pending if all_pending else pending[:1]:
+        action = "approve" if rng.random() < 0.6 else "reject"
+        code, out = coord.call("POST", f"/api/approvals/{req['requestId']}/{action}", {})
+        reason = (out or {}).get("code", "") if isinstance(out, dict) and code != 200 else ""
+        if code == 409 and action == "approve":  # the slot was blocked meanwhile: a coordinator rejects instead
+            code, out = coord.call("POST", f"/api/approvals/{req['requestId']}/reject", {"note": "slot no longer free"})
+            action, reason = "reject after 409", (out or {}).get("code", "") if code != 200 else ""
+        tally.add(f"{action} {_status(code)} {reason}".strip(),
+                  f"{action} {req['requestId']}: {code} {out}" if code >= 500 else None)
+    return len(pending)
+
+
+def approver(coord: Http, stop: threading.Event, tally: Tally, rng: random.Random) -> None:
+    while not stop.is_set():
+        decide(coord, tally, rng)
+        time.sleep(rng.uniform(0.5, 2))
+
+
 INVARIANTS = {
     "I1 no slot has two active bookings": """
         SELECT slot_id, count(*) FROM appointments
@@ -222,6 +250,17 @@ INVARIANTS = {
     "I5 every rejected run says why": """
         SELECT run_id FROM solver_run WHERE facility_id = %(facility)s AND status = 'REJECTED'
           AND created_at >= %(since)s AND COALESCE(outcome, '') = ''""",
+    # A request still PENDING, a decided request whose hold still blocks a slot, or an approved one whose hold never
+    # became a booking. (An approved booking the solver moved later is CANCELLED with a re-plan reason: fine.)
+    "I8 every reservation was released or decided": """
+        SELECT r.request_id, r.request_status, h.appointment_status FROM slot_change_requests r
+        JOIN appointments h ON h.appointment_id = r.hold_appointment_id
+        WHERE r.facility_id = %(facility)s AND r.requested_at >= (SELECT setuhaul_now()) - interval '1 day'
+          AND (r.request_status = 'PENDING'
+               OR (r.request_status IN ('REJECTED', 'EXPIRED', 'WITHDRAWN') AND h.appointment_status
+                   IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+               OR (r.request_status = 'APPROVED' AND (h.appointment_status = 'PENDING_CONFIRMATION'
+                   OR h.confirmed_at IS NULL)))""",
 }
 
 
@@ -253,6 +292,7 @@ def run(database_url: str, api: str, solver_url: str, seconds: int, drivers: int
         threads.append(threading.Thread(target=solver_loop, args=(solver, stop, tally)))
         threads.append(threading.Thread(target=coordinator, args=(coord, database_url, stop, tally,
                                                                    random.Random(seed * 7))))
+        threads.append(threading.Thread(target=approver, args=(coord, stop, tally, random.Random(seed * 11))))
         started = time.monotonic()
         for t in threads:
             t.start()
@@ -262,6 +302,8 @@ def run(database_url: str, api: str, solver_url: str, seconds: int, drivers: int
         stop.set()
         for t in threads:
             t.join()
+        # Every change still waiting for approval is decided, so each reservation ends one way or the other.
+        decide(coord, tally, random.Random(seed * 13), all_pending=True)
         # One quiet re-plan, so the last coordinator change is planned around, then the checks.
         code, out = solver.call("POST", "/replan", {"facilityId": FACILITY, "trigger": "MANUAL",
                                                     "detail": "race harness: final"})

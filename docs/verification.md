@@ -69,5 +69,32 @@ unload, not only its slot (`TestALongUnloadNextDoorMakesASlotUnavailable`, `Comm
 | Operating-hour limit (RULE005) | `SeededCasesIT.operatingHourLimitRULE005...`, validator V6 |
 | Multi-facility dataset | `SeededCasesIT.multiFacilityPlansJaipurAlone`, scale test |
 | Ambiguous shipment (DRV004), Cancelled shipment message (SHP1019) | dock-api `TestGuideCasesAmbiguousDriverAndCancelledShipment` |
-| Duplicate driver message, Ask-only conversation, Communication failure, Missing contact data | Out of scope: the planner does not read chat messages, e-mails or contacts. A driver agent asks before holding (options never hold), and only `confirm` makes a booking |
+| Duplicate driver message, Ask-only conversation, Communication failure, Missing contact data | Phase 7 below: a retried message is stored and answered once (dock-api `TestThreadsMessagesExceptionsAndCases`, agent `test_store_keeps_sessions_handled_messages_and_the_cursor`); the agent asks before holding; a failed send or planner call is retried (`test_a_failed_send_does_not_stop_the_bot...`, `test_a_failing_update_is_handled_again...`); an unknown number becomes a case (`test_an_unknown_number_becomes_a_case`) |
 | No real-time tracking | Superseded by the decision to simulate GPS on three lanes (phase 3) |
+
+## Phase 7: the driver agent and coordinator approvals
+
+The agent review's 4 critical findings and 12 warnings, each with its test
+([plan](https://claude.ai/artifact/CEhBRBoLMYFSsm8Yce24ny)). The agent's live tests run against the planner on the real
+snapshot (`scripts/agent-suite.sh`); dock-api store tests and the solver's ITs need the seeded test database.
+
+| Finding | What must hold | Evidence | Result |
+| --- | --- | --- | --- |
+| C1 agent wrote planner data in its own SQLite | No SQL against planner tables in `agent/`; agent holds are planner holds the solver sees | agent `test_the_agent_holds_no_planner_data`; race harness with agent-style holds and approvals: I1-I8 | pass |
+| C2 approvals stored as 15-minute holds | A HIGH or CRITICAL change keeps its slot reserved 60 minutes, past the 15-minute sweep, in dock-api, the solver and V3 | dock-api `TestCriticalChangeWaitsForApprovalThenApproveSwaps`, `TestAReservationExpiresAfterSixtyMinutes`; solver `ReservationIT`; jobs `test_a_reservation_waiting_for_approval_outlasts_the_hold_expiry` | pass |
+| C3 reject left the truck with no booking | Approve swaps the bookings; reject and expiry keep the old booking current | dock-api `TestRejectKeepsTheOldBooking`, `TestAReservationExpiresAfterSixtyMinutes`, `TestApprovalIsRefusedWhenTheSlotWasBlockedMeanwhile`; browser `web/e2e/driver-cases.mjs` (bookings checked in the database) | pass |
+| C4 one failed send stopped the Telegram bot | A failed send or update leaves the poller running and is answered on retry; a message is marked handled only after it is answered | agent `test_a_failed_send_does_not_stop_the_bot...`, `test_a_failing_update_is_handled_again...`, `test_the_poller_gives_up_on_an_update_after_three_attempts` | pass |
+| W1 ETA ignored GPS | The reply names the ETA the plan uses | agent `test_w1_the_reply_names_the_eta_the_plan_uses` (SHP1012, GPS lane) | pass |
+| W2 "still works" used a grace period | The answer follows the planner's `canMakeBooking` | agent `test_w2_still_works_follows_the_planners_rule`; dock-api `TestTripStatusCarriesThePlannersClockAndRules` | pass |
+| W3, W4 long unloads, reefer docks | Options are exactly the planner's | agent `test_w3_w4_a_long_unload_gets_exactly_the_planners_options` (SHP1009, 75-minute unload) | pass |
+| W5 5-minute holds | A hold lasts the planner's 15 minutes | agent `test_w5_w6_w7_holds...` | pass |
+| W6 a failed hold dropped the existing one | A refused switch leaves the first hold live | agent `test_w5_w6_w7_holds...` | pass |
+| W7 stale buttons picked another slot | Buttons carry the slot id; an older button never holds another slot | agent `test_slot_buttons_carry_the_slot_id_one_per_row`, `test_w5_w6_w7_holds...` | pass |
+| W8 wall clock | Times come from the planner (`asOf`); nothing plans on the wall clock | agent `test_nothing_plans_on_the_wall_clock`, `test_a_driver_with_two_trips...` (verified on 4 Aug 2026) | pass |
+| W9 model output unchecked, no timeout | Out-of-range fields dropped; 10-second timeout, one retry, then rules | agent `test_out_of_range_readings_are_dropped`, `test_the_claude_client_gets_a_timeout_and_one_retry`, `test_a_stalled_or_failing_claude_falls_back_to_rules` | pass |
+| W10 replies in group chats | Only private chats are answered | agent `test_group_chats_get_no_reply` | pass |
+| W11 agent moved early trucks itself | An early arrival is reported only | agent `test_w11_an_early_truck_is_reported_never_moved_by_the_agent` | pass |
+| W12 tested only on invented data | The agent suite runs against the Compose stack on the real snapshot | `scripts/agent-suite.sh`: 27 passed | pass |
+| Approvals and replies reach the driver | APPROVAL, REPLY and BOOKING notices go to the right chat within one poll | agent `test_a_high_load_change_waits...`, `test_a_safety_message_escalates...`, `test_a_plan_change_reaches_the_driver_within_one_poll` | pass |
+| Access | An agent key opens the agent's routes only; coordinators act with a session, recorded by email | dock-api `TestPhase7AccessMatrix`, `TestCoordinatorRoutes` | pass |
+| Chat reschedule limit | A third chat change is refused and handed to a coordinator | dock-api `TestLowAndNormalChangesConfirmAtOnceUpToTheChatLimit`; agent `test_the_chat_limit_hands_the_third_change_to_a_coordinator` | pass |

@@ -14,7 +14,7 @@
 #
 # Sign in at http://localhost:5173 with the local demo account demo@setuhaul.local / setuhaul-demo-2026
 # (local only; a deployment sets its own accounts and secrets, see docs/deploy.md). Ports are bound to 127.0.0.1.
-# Screens: Plan, Shipments, Capacity and a Driver chat test console. A driver agent can call
+# Screens: Plan, Shipments, Capacity, Driver cases and a Driver chat test console. A driver agent can call
 # http://localhost:8082/api/agent/... with the header X-Agent-Key: local-agent-key-for-development-only
 services:
   db:
@@ -104,6 +104,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # The driver chat agent (agent/): Telegram with TELEGRAM_TOKEN in .env (agent/README.md has the steps). Without a
+  # token it starts and idles. It reaches the planner only through the api service's /api/agent/* with its key.
+  agent:
+    build:
+      context: agent
+    image: setuhaul/agent:local
+    environment:
+      PLANNER_URL: http://api:8082
+      PLANNER_AGENT_KEY: ${SETUHAUL_AGENT_KEY:-local-agent-key-for-development-only}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      # Local testing only: lets you act as a seeded driver with /as +91-9000010009 (your own number is not seeded).
+      ALLOW_PHONE_OVERRIDE: ${ALLOW_PHONE_OVERRIDE:-false}
+      # Optional: read free text with Claude; rules otherwise.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - agentstate:/state
+    depends_on:
+      - api
+    restart: unless-stopped
+
   web:
     build:
       context: web
@@ -116,3 +136,4 @@ services:
 
 volumes:
   pgdata:
+  agentstate:

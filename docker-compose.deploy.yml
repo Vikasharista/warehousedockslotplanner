@@ -38,6 +38,13 @@ services:
   web:
     ports: !reset []
 
+  # The driver agent: idles unless TELEGRAM_TOKEN is set; its key must be one of SETUHAUL_AGENT_KEYS.
+  agent:
+    environment:
+      PLANNER_AGENT_KEY: ${SETUHAUL_AGENT_KEY:-}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      ALLOW_PHONE_OVERRIDE: "false"
+
   # Restarts the demo from the snapshot at 09:55 IST every night (default 03:00 IST); accounts are kept.
   reset:
     build:

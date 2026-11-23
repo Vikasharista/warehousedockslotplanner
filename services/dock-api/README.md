@@ -44,7 +44,7 @@ characters). They are created or updated at start, with only a bcrypt hash store
 | `GET /api/shipments/{id}/options?limit=` | Free slots the truck can hold now (only once its request has been made) |
 | `POST /api/holds` `{"shipmentId","slotId"}` | 201 with the hold; 409 `SLOT_UNAVAILABLE` or `HOLD_CONFLICT` |
 | `GET /api/holds/{id}` | The hold |
-| `POST /api/holds/{id}/confirm` | The hold becomes the truck's CONFIRMED booking; 409 `HOLD_EXPIRED` after 15 minutes |
+| `POST /api/holds/{id}/confirm` | 200: the hold becomes the truck's CONFIRMED booking. 202 `AWAITING_APPROVAL`: a HIGH or CRITICAL truck's change waits for a coordinator. 409 `HOLD_EXPIRED` after 15 minutes, `RESCHEDULE_LIMIT` after 2 chat changes |
 | `POST /api/holds/{id}/release` | The hold is cancelled |
 | `GET /api/facilities/{id}/shipments` | Open trucks known as of the shared clock, with ETA, gate-in, current slot and plan status |
 | `POST /api/facilities/{id}/shipments` `{"priorityCode","requiredDockType","loadWeightKg","unloadMin","originCity","eta"}` | A truck request made now (`SHP-M0001`, …, with its own driver and vehicle); the NEW_REQUEST trigger plans it |
@@ -55,7 +55,13 @@ characters). They are created or updated at start, with only a bcrypt hash store
 | `POST /api/facilities/{id}/dock-events` `{"dockId","type","start","end"?,"reason"}` | BREAKDOWN, MAINTENANCE, CAPACITY_REDUCTION or MANUAL_BLOCK; re-plans |
 | `PATCH /api/facilities/{id}/docks/{dock}` `{"status"}` | ACTIVE, MAINTENANCE or OUT_OF_SERVICE; re-plans |
 | `POST /api/slots/{id}/status` `{"status","reason"?}` | Blocks (with a reason) or reopens a slot; re-plans |
-| `/api/agent/*` | The driver agent API, with an `X-Agent-Key` or a session: see [docs/agent-api.md](../../docs/agent-api.md) |
+| `GET /api/facilities/{id}/driver-cases` | The Driver cases screen: pending approval requests, open coordinator cases (and those with no facility: unknown numbers), open driver exceptions |
+| `GET /api/threads/{id}/messages` | A conversation's messages, oldest first |
+| `POST /api/approvals/{id}/approve` `{"note"?}` | Swaps the reserved slot in for the truck's booking under the booking lock; 409 if the slot was blocked meanwhile or the request is no longer pending; re-plans |
+| `POST /api/approvals/{id}/reject` `{"note"?}` | Releases the reservation; the old booking stays; re-plans |
+| `POST /api/cases/{id}/assign` | Takes the case (the signed-in coordinator, by email) |
+| `POST /api/cases/{id}/resolve` `{"reply"?}` | Closes the case; a reply is logged on the conversation and sent to the driver through the feed |
+| `/api/agent/*` | The driver agent API, with an `X-Agent-Key` or a session: see [docs/agent-api.md](../../docs/agent-api.md). An agent key opens nothing else |
 
 Changes marked "re-plans" ask the solver for a MANUAL re-plan in the background (detail such as "dock D1 set to
 OUT_OF_SERVICE") and answer at once; the plan view shows the result within a few seconds. If two changes overlap, a
@@ -77,6 +83,12 @@ Errors are `{"code", "error"}`: 400 bad input, 404 unknown, 409 conflicts, 500 w
 - Every hold write takes the same per-facility advisory lock as the solver's commit, and the unique index on active
   bookings per slot is the final guard.
 - A sweeper cancels expired holds every 30 seconds (`holds.sweep_every`).
+- A HIGH or CRITICAL truck's change (`planning.approval_priorities`) waits for a coordinator: the hold stays,
+  linked to a `slot_change_requests` row, and lives until the request expires (`planning.approval_reserve_min`, 60)
+  instead of 15 minutes. The sweeper expires requests too (the hold is released, the old booking stays, an EXPIRED
+  notice goes on the feed). `hold_expires_at()` in Postgres gives every reader the same expiry.
+- A truck may change its booking by chat `planning.max_chat_reschedules` times (2); hold and confirm refuse the next
+  one with `RESCHEDULE_LIMIT`.
 
 ## Tests
 

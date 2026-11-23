@@ -3,6 +3,10 @@
 Last updated 23 Nov 2026. The shared, commentable copy of this guide is the
 [Claude Doc](https://claude.ai/artifact/3A4TEtx6ZUU6RJweCNSH3y); the route reference is [agent-api.md](agent-api.md).
 
+> **Phase 7.** The full driver agent now lives in this repository: [agent/](../agent/README.md) (Telegram, WhatsApp
+> optional, approvals, coordinator cases, plan-change notices). This guide stays as the minimal bot on the same routes;
+> it handles the two phase 7 changes below (202 approvals, feed rows of kind APPROVAL and REPLY).
+
 The Telegram bot lets a truck driver ask for their dock slot, report a delay, swap to another free slot and hear when
 the plan moves them, all in a chat. It does this through eight HTTP routes on the planner's API (dock-api, under
 `/api/agent/`), authenticated with one agent key. The bot never books a slot by itself: it can only hold a free slot
@@ -373,7 +377,10 @@ async def on_button(p: Planner, chat: Chat, data: str) -> Reply:
             h = await p.hold(chat.shipment, arg)
             return Reply(f"Held until {ist(h['expiresAt'])}. Keep this slot?", _yes_no(h["appointmentId"]))
         if kind == "yes":
-            await p.confirm(arg)
+            h = await p.confirm(arg)
+            if h.get("outcome") == "AWAITING_APPROVAL":  # HIGH and CRITICAL changes wait for a coordinator
+                return Reply("Requested. A coordinator approves changes for priority loads; your current slot stays "
+                             "until then and I'll tell you the answer. " + (await p.trip(chat.shipment))["message"], MENU)
             return Reply("Confirmed. " + (await p.trip(chat.shipment))["message"], MENU)
         if kind == "no":
             await p.release(arg)
@@ -445,13 +452,16 @@ async def poll_changes(p: Planner, cursor: int | None, chat_for_phone) -> tuple[
     while True:
         page = await p.changes(cursor, limit=100)
         for c in page["changes"]:
-            newest[c["shipmentId"]] = c  # several changes to one trip in a page: only the newest is sent
+            if c.get("kind", "BOOKING") == "BOOKING":
+                newest[c["shipmentId"]] = c  # several moves of one trip in a page: only the newest is sent
+            else:
+                newest[f"{c['kind']}:{c['changeId']}"] = c  # approval outcomes and coordinator replies: every one
         cursor = page["next"]
         if cursor >= page["last"]:
             break
     out = []
     for c in newest.values():
-        chat_id = chat_for_phone(last10(c["driverPhone"]))
+        chat_id = chat_for_phone(last10(c.get("driverPhone") or ""))
         if chat_id is not None:
             out.append((chat_id, c["message"]))
     return cursor, out
@@ -577,8 +587,10 @@ driver.
  "message": "SHP1003 moved from dock D1 at 09:00 to dock D1 at 10:00 because your slot started before you could reach it."}
 ```
 
+- `kind` is `BOOKING` (the solver), `APPROVAL` (a coordinator decided a priority truck's change) or `REPLY` (a
+  coordinator answered a case). A reply to an unknown number has no `shipmentId` or driver phone; this bot skips it.
 - `action` is `NEW` (a slot was booked), `MOVED` (to another slot) or `RELEASED` (no slot now; a coordinator will
-  follow up).
+  follow up); `APPROVED`, `REJECTED` or `EXPIRED` for approvals; `REPLY` for replies.
 - `message` is ready to send, in plain words and IST.
 
 The loop:

@@ -28,7 +28,8 @@ a few minutes; later starts are quick. What starts:
 | `gps` | | Simulated GPS on the three lanes and the ETA service, every 30 s |
 | `solver` | 8081 | Plans, validates, commits; re-plans on ETA shifts, check-ins and every 15 minutes |
 | `api` | 8082 | dock-api: the screens' API, driver holds and the [driver agent API](docs/agent-api.md) |
-| `web` | 5173 | The plan view and the Shipments, Capacity and Driver chat screens |
+| `web` | 5173 | The plan view and the Shipments, Capacity, Driver cases and Driver chat screens |
+| `agent` | | The driver chat agent ([agent/](agent/README.md)): Telegram with `TELEGRAM_TOKEN` in `.env`, idle without it |
 
 The first start also loads a **load test**: 70 generated truck requests on top of the snapshot's 20. Fifty are known
 at 09:55 and twenty arrive between 10:00 and 17:00, with delays, a dock breakdown and coordinator cases. That fills
@@ -42,6 +43,9 @@ Screens, across the top of the page:
 - **Shipments**: every open truck request with its ETA, slot and plan status. Add a request, edit one, record a
   driver ETA or an operations override, or check a truck in at the gate.
 - **Capacity**: take docks in or out of service, record breakdowns or maintenance, block or reopen single slots.
+- **Driver cases**: what the driver agent hands to a person. HIGH and CRITICAL slot changes wait here for approval
+  (the old booking stands and the new slot is reserved for 60 minutes). Escalated cases can be answered, and the reply
+  reaches the driver. Open driver exceptions each open their conversation.
 - **Driver chat**: a test console that plays a driver and calls the agent API a WhatsApp bot would use (local agent key
   `local-agent-key-for-development-only`, header `X-Agent-Key`).
 
@@ -64,7 +68,8 @@ you choose, and a nightly reset to the start of the demo day.
 | [`jobs/`](jobs/) | Python jobs: seed loader, data audit, plan validator, GPS simulator and ETA service | Python 3.12+ |
 | [`solver/`](solver/) | The dock-sequencing solver | Java 17+, Maven, Timefold Solver |
 | [`services/`](services/) | [`dock-api`](services/dock-api/): the plan view's API and driver holds (hold, confirm, release). [`core-lib`](services/core-lib/): the Go services' shared library | Go 1.24+ |
-| [`web/`](web/) | The plan view (dock sequence, exceptions, change log, runs, driver holds) and the Shipments, Capacity and Driver chat screens | React, TypeScript, Vite |
+| [`web/`](web/) | The plan view (dock sequence, exceptions, change log, runs, driver holds) and the Shipments, Capacity, Driver cases and Driver chat screens | React, TypeScript, Vite |
+| [`agent/`](agent/) | The driver chat agent: Telegram (WhatsApp optional), talking to the planner only through its agent API | Python 3.12+ |
 | [`docs/`](docs/) | Data audit report, [driver agent API](docs/agent-api.md) and its [Telegram bot guide](docs/telegram-agent.md), [deployment](docs/deploy.md), [verification matrix](docs/verification.md), [phase 6 results](docs/results/phase6/) ([readout](https://claude.ai/artifact/5Hawn7Pmg39pbhSTFByMFs)) | Markdown |
 | [`scripts/`](scripts/) | `break-and-defend.sh`: rebuilds the baseline comparison and scale tables | Bash |
 
@@ -78,5 +83,7 @@ Postgres is the runtime database. The SQLite file is kept unchanged as the seed 
 4. Commit path, re-plan triggers, driver holds and the plan view (the plan view moved up from phase 5)
 5. Agent hooks and the rest of the frontend
 6. Integrity, scale and baseline tests; client readout
+7. The driver chat agent moved into this repository, coordinator approvals for priority changes, the Driver cases
+   screen ([plan](https://claude.ai/artifact/CEhBRBoLMYFSsm8Yce24ny))
 
 Each phase lands as a branch and a pull request.
