@@ -345,6 +345,198 @@ class CommitIT {
         }
     }
 
+    @Test
+    @Order(9)
+    void etaShiftsReplanOnlyPastThirtyMinutesAndAnEarlyTruckMovesAlone() throws Exception {
+        clock("2026-08-04T12:00:00+05:30");
+        assertThat(replan("MANUAL")).containsEntry("status", "COMMITTED");
+        assertThat(triggers.decide(FACILITY)).isEmpty();
+
+        // Booked trucks from the last committed plan, with the ETA each was placed on.
+        List<Map<String, Object>> booked = query("""
+                SELECT i.shipment_id, i.slot_id, i.dock_id, i.eta_basis_ts, sl.slot_start_ts, s.vehicle_id
+                FROM solver_plan_item i
+                JOIN solver_run r USING (run_id)
+                JOIN appointment_slots sl ON sl.slot_id = i.slot_id
+                JOIN shipments s ON s.shipment_id = i.shipment_id
+                JOIN appointments a ON a.shipment_id = i.shipment_id AND a.slot_id = i.slot_id AND a.is_current = 1
+                     AND a.appointment_status = 'CONFIRMED'
+                WHERE r.run_id = (SELECT run_id FROM solver_run WHERE status = 'COMMITTED' ORDER BY committed_at DESC LIMIT 1)
+                  AND i.allocation_status = 'ALLOCATED' AND i.eta_basis_ts IS NOT NULL
+                  AND sl.slot_start_ts > setuhaul_now() + interval '90 minutes'
+                  -- trucks whose next GPS estimate decides their ETA: no override, no open driver exception
+                  AND NOT EXISTS (SELECT 1 FROM eta_updates e WHERE e.shipment_id = i.shipment_id
+                                  AND e.source_type = 'OPERATIONS_OVERRIDE')
+                  AND NOT EXISTS (SELECT 1 FROM driver_exceptions x WHERE x.shipment_id = i.shipment_id
+                                  AND x.exception_status NOT IN ('RESOLVED', 'CANCELLED', 'DUPLICATE'))
+                ORDER BY sl.slot_start_ts, i.shipment_id
+                """);
+        assertThat(booked).hasSizeGreaterThanOrEqualTo(3);
+
+        // An early truck: one with a free slot on its own dock between its new earliest-ready time and its slot.
+        Map<String, Object> early = null;
+        String freeSlot = null;
+        for (Map<String, Object> b : booked) {
+            List<Map<String, Object>> free = query("""
+                    SELECT sl.slot_id FROM appointment_slots sl
+                    WHERE sl.dock_id = ? AND sl.slot_status = 'OPEN'
+                      AND sl.slot_start_ts >= ?::timestamptz - interval '35 minutes' + interval '30 minutes'
+                      AND sl.slot_start_ts < ? AND sl.slot_start_ts > setuhaul_now()
+                      AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = sl.slot_id
+                                      AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+                    ORDER BY sl.slot_start_ts LIMIT 1
+                    """, b.get("dock_id"), b.get("eta_basis_ts"), b.get("slot_start_ts"));
+            if (!free.isEmpty()) {
+                early = b;
+                freeSlot = (String) free.get(0).get("slot_id");
+                break;
+            }
+        }
+        if (early == null) {
+            // No such gap in the plan: make one by freeing the slot before the first truck's on its own dock.
+            early = booked.get(booked.size() - 1);
+            freeSlot = (String) query("""
+                    SELECT slot_id FROM appointment_slots WHERE dock_id = ? AND slot_start_ts < ?
+                    ORDER BY slot_start_ts DESC LIMIT 1""", early.get("dock_id"), early.get("slot_start_ts"))
+                    .get(0).get("slot_id");
+            exec("UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0 WHERE slot_id = '" + freeSlot
+                    + "' AND appointment_status IN ('CONFIRMED', 'PENDING_CONFIRMATION')");
+        }
+        String earlyId = (String) early.get("shipment_id");
+        List<Map<String, Object>> others = booked.stream().filter(b -> !b.get("shipment_id").equals(earlyId)).toList();
+        Map<String, Object> twenty = others.get(0);
+        Map<String, Object> late = others.get(1);
+
+        // 20 minutes early, then 29 minutes late: below the threshold, nothing is due.
+        clock("2026-08-04T12:02:00+05:30");
+        gps(twenty, -20);
+        gps(late, 29);
+        assertThat(triggers.decide(FACILITY)).as("-20 and +29 min").isEmpty();
+
+        // 31 minutes late: an ETA trigger.
+        clock("2026-08-04T12:03:00+05:30");
+        gps(late, 31);
+        var delay = triggers.decide(FACILITY).orElseThrow();
+        assertThat(delay.trigger()).isEqualTo("ETA_DELAY");
+        assertThat(delay.detail()).contains(late.get("shipment_id") + " +31 min");
+        assertThat(replan("ETA_DELAY")).containsEntry("status", "COMMITTED");
+        assertThat(slotOf((String) twenty.get("shipment_id"))).as("20 min early keeps its slot")
+                .isEqualTo(twenty.get("slot_id"));
+
+        // 35 minutes early: an ETA trigger (once the minimum gap between re-plans has passed); the truck takes the
+        // free earlier slot and no other booking moves.
+        clock("2026-08-04T12:10:00+05:30");
+        Map<String, String> before = currentBookings();
+        gps(early, -35);
+        var due = triggers.decide(FACILITY);
+        assertThat(due).as("trigger for %s: %s", earlyId, query("""
+                SELECT e.eta_ts, e.source, i.eta_basis_ts, i.allocation_status, r.run_id
+                FROM solver_plan_item i JOIN solver_run r USING (run_id)
+                CROSS JOIN LATERAL effective_eta(i.shipment_id, setuhaul_now()) e
+                WHERE r.status = 'COMMITTED' AND i.shipment_id = ? ORDER BY r.committed_at DESC LIMIT 1""", earlyId))
+                .isPresent();
+        var shift = due.orElseThrow();
+        assertThat(shift.trigger()).isEqualTo("ETA_DELAY");
+        assertThat(shift.detail()).contains(earlyId + " -35 min");
+        assertThat(replan("ETA_DELAY")).containsEntry("status", "COMMITTED");
+        Map<String, String> after = currentBookings();
+        assertThat(after.get(earlyId)).as("%s moves earlier", earlyId).isEqualTo(freeSlot);
+        before.remove(earlyId);
+        after.remove(earlyId);
+        assertThat(after).as("no other confirmed booking moves").containsAllEntriesOf(before);
+        String reason = (String) query("""
+                SELECT i.reason_code FROM solver_plan_item i JOIN solver_run r USING (run_id)
+                WHERE r.status = 'COMMITTED' AND i.shipment_id = ? ORDER BY r.committed_at DESC LIMIT 1""", earlyId)
+                .get(0).get("reason_code");
+        assertThat(reason).isEqualTo("ARRIVING_EARLY");
+    }
+
+    @Test
+    @Order(10)
+    void aHoldMadeWhileSolvingWhoseUnloadRunsIntoANewAllocationMakesTheRunStale() throws Exception {
+        clock("2026-08-04T12:30:00+05:30");
+        // Free one booked truck, so this run makes a NEW allocation for it.
+        String freed = (String) query("""
+                SELECT a.shipment_id FROM appointments a
+                JOIN appointment_slots sl ON sl.slot_id = a.slot_id
+                JOIN docks d ON d.dock_id = sl.dock_id AND d.dock_type = 'STANDARD'
+                JOIN shipments s ON s.shipment_id = a.shipment_id
+                LEFT JOIN facility_checkins fc ON fc.shipment_id = a.shipment_id AND fc.gate_in_ts IS NOT NULL
+                WHERE a.is_current = 1 AND a.appointment_status = 'CONFIRMED' AND fc.shipment_id IS NULL
+                  AND sl.slot_start_ts > setuhaul_now() + interval '2 hours' AND s.load_weight_kg <= d.max_vehicle_weight_kg
+                ORDER BY sl.slot_start_ts DESC, a.shipment_id LIMIT 1""").get(0).get("shipment_id");
+        exec("UPDATE appointments SET appointment_status = 'CANCELLED', is_current = 0 WHERE shipment_id = '" + freed
+                + "' AND is_current = 1");
+        String runId = solve("2026-08-04T12:30:00+05:30");
+        Map<String, Object> item = query("""
+                SELECT i.shipment_id, i.slot_id, i.dock_id, i.planned_start_ts FROM solver_plan_item i
+                WHERE i.run_id = ? AND i.booking_action = 'NEW' ORDER BY i.planned_start_ts LIMIT 1""", runId).get(0);
+        // An earlier free slot on that dock, used by nobody in the run.
+        Map<String, Object> earlier = query("""
+                SELECT sl.slot_id, round(EXTRACT(EPOCH FROM ?::timestamptz - sl.slot_start_ts) / 60)::int AS gap
+                FROM appointment_slots sl
+                WHERE sl.dock_id = ? AND sl.slot_status = 'OPEN' AND sl.slot_start_ts < ?
+                  AND sl.slot_start_ts > setuhaul_now()
+                  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.slot_id = sl.slot_id
+                                  AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+                  AND NOT EXISTS (SELECT 1 FROM solver_plan_item j WHERE j.run_id = ? AND j.slot_id = sl.slot_id)
+                ORDER BY sl.slot_start_ts DESC LIMIT 1""",
+                item.get("planned_start_ts"), item.get("dock_id"), item.get("planned_start_ts"), runId).get(0);
+        // A driver the run leaves unassigned holds it (no planned times depend on its unload), with an unload that
+        // runs 15 minutes into the new allocation.
+        String holder = (String) query("""
+                SELECT i.shipment_id FROM solver_plan_item i
+                WHERE i.run_id = ? AND i.allocation_status = 'UNASSIGNED'
+                  AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.shipment_id = i.shipment_id
+                                  AND a.appointment_status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS'))
+                ORDER BY i.shipment_id LIMIT 1""", runId).get(0).get("shipment_id");
+        int unload = ((Number) earlier.get("gap")).intValue() + 15;
+        exec("UPDATE shipments SET expected_unload_min = " + unload + " WHERE shipment_id = '" + holder + "'");
+        exec("""
+                INSERT INTO appointments (appointment_id, shipment_id, slot_id, appointment_status, booking_source,
+                    is_current, booked_at, updated_at)
+                VALUES ('APT-IT-LONG', '%s', '%s', 'PENDING_CONFIRMATION', 'DRIVER_CHAT', 0, setuhaul_now(), setuhaul_now())
+                """.formatted(holder, earlier.get("slot_id")));
+        try {
+            given().when().post("/runs/" + runId + "/commit").then().statusCode(200)
+                    .body("status", equalTo("REJECTED"))
+                    .body("outcome", org.hamcrest.Matchers.containsString(
+                            item.get("shipment_id") + " overlaps the booking of " + holder));
+        } finally {
+            exec("DELETE FROM appointments WHERE appointment_id = 'APT-IT-LONG'");
+        }
+    }
+
+    /** A fresh GPS estimate putting the truck {@code shift} minutes from the ETA its slot was planned on. */
+    private void gps(Map<String, Object> booking, int shift) throws Exception {
+        try (Connection c = dataSource.getConnection(); PreparedStatement ps = c.prepareStatement("""
+                INSERT INTO gps_eta_estimates (shipment_id, vehicle_id, lane_id, remaining_km, eta_ts, confidence_code,
+                    computed_at)
+                VALUES (?, ?, 'L1-DEL-JAI', 40, ?::timestamptz + make_interval(mins => ?), 'HIGH', setuhaul_now())
+                """)) {
+            c.setAutoCommit(true);
+            ps.setString(1, (String) booking.get("shipment_id"));
+            ps.setString(2, (String) booking.get("vehicle_id"));
+            ps.setObject(3, booking.get("eta_basis_ts"));
+            ps.setInt(4, shift);
+            ps.executeUpdate();
+        }
+    }
+
+    private String slotOf(String shipment) throws Exception {
+        return (String) query("SELECT slot_id FROM appointments WHERE shipment_id = ? AND is_current = 1", shipment)
+                .get(0).get("slot_id");
+    }
+
+    /** Current CONFIRMED bookings: shipment to slot. */
+    private Map<String, String> currentBookings() throws Exception {
+        Map<String, String> out = new java.util.TreeMap<>();
+        for (var row : query("SELECT shipment_id, slot_id FROM appointments WHERE is_current = 1 AND appointment_status = 'CONFIRMED'")) {
+            out.put((String) row.get("shipment_id"), (String) row.get("slot_id"));
+        }
+        return out;
+    }
+
     static final String CHECKIN_SHP1009 = """
             INSERT INTO facility_checkins (checkin_id, shipment_id, facility_id, gate_in_ts, arrival_state, queue_state,
                 updated_at)

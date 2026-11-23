@@ -156,6 +156,7 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 var reasonWords = map[string]string{
 	"SLOT_ALREADY_STARTED":     "your slot started before you could reach it",
 	"TRUCK_CANNOT_MAKE_SLOT":   "your new ETA is later than the slot",
+	"ARRIVING_EARLY":           "you are arriving early and an earlier slot was free",
 	"HOLD_EXPIRED":             "the hold expired",
 	"BUMPED_FOR_CRITICAL":      "an urgent delivery needed that slot",
 	"BLOCKED_BY_DOCK_EVENT":    "the dock is unavailable then",

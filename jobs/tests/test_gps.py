@@ -83,6 +83,14 @@ def test_eta_service_writes_only_on_a_10_minute_change(routes):
     assert gaps and all(g >= 10 for g in gaps)
 
 
+@pytest.mark.parametrize("moved_min, written", [(9, False), (-9, False), (10, True), (11, True), (-11, True)])
+def test_a_fresh_estimate_is_written_only_when_it_moved_10_minutes_or_more(moved_min, written):
+    last = dt.datetime(2026, 8, 4, 12, 0, tzinfo=IST)
+    s = eta.EtaSettings()
+    assert eta.worth_writing(last + dt.timedelta(minutes=moved_min), last, s) is written
+    assert eta.worth_writing(last, None, s) is True
+
+
 def test_a_silent_device_is_marked_stale_once_and_keeps_its_last_eta(routes):
     r = routes["L1-DEL-JAI"]
     start = dt.datetime(2026, 8, 4, 6, 0, tzinfo=IST)

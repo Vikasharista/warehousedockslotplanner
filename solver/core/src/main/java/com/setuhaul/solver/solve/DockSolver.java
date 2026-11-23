@@ -5,6 +5,7 @@ import ai.timefold.solver.core.api.solver.SolverFactory;
 import ai.timefold.solver.core.config.solver.SolverConfig;
 import ai.timefold.solver.core.config.solver.termination.TerminationConfig;
 
+import com.setuhaul.solver.baseline.GreedyBaseline;
 import com.setuhaul.solver.config.SolverSettings;
 import com.setuhaul.solver.constraints.DockConstraints;
 import com.setuhaul.solver.domain.DockPlan;
@@ -42,6 +43,15 @@ public final class DockSolver {
     public static DockPlan solve(DockPlan problem, SolverSettings s, TerminationConfig termination) {
         SolverFactory<DockPlan> factory = SolverFactory.create(config(s, termination));
         Solver<DockPlan> solver = factory.buildSolver();
-        return solver.solve(problem);
+        return solver.solve(warmStart(problem, s));
+    }
+
+    /**
+     * Places the open trucks by the configured baseline rule before the search starts ({@code warm_start}); kept
+     * bookings are untouched. With NONE the plan is returned as loaded.
+     */
+    public static DockPlan warmStart(DockPlan problem, SolverSettings s) {
+        return "NONE".equals(s.warmStart()) ? problem
+                : GreedyBaseline.apply(problem, GreedyBaseline.Rule.valueOf(s.warmStart()));
     }
 }

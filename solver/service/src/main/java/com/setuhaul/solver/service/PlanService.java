@@ -99,7 +99,7 @@ public class PlanService {
         var termination = DockSolver.timeLimited(effective);
         DockPlan solved = solverFactory
                 .buildSolver(new SolverConfigOverride().withTerminationConfig(termination))
-                .solve(load.plan());
+                .solve(DockSolver.warmStart(load.plan(), effective));
         long solveMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
 
         boolean feasible = solved.getScore() != null && solved.getScore().isFeasible();

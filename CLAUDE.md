@@ -53,3 +53,9 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   open), then the latest report; the agent tells the driver which ETA the plan uses.
 - Coordinator inputs (new request, edit, ETA override, check-in, dock status, dock events, slot blocks) are dock-api
   routes behind the Shipments and Capacity screens; each one asks the solver for a MANUAL re-plan in the background.
+- The solver's search starts from the priority-first plan (`warm_start=PRIORITY_FIRST`, chosen in phase 6 over the
+  cold start, best-of-both and a longer limit). Scoring rules are unchanged.
+- A confirmed truck whose effective ETA is 30+ minutes earlier than the ETA its slot was planned on is released
+  (`early_release_min`, reason `ARRIVING_EARLY`): it may take a free earlier slot; nobody else moves for it.
+- Every availability check (driver options and holds, the solver's view of side holds, validator V3, the commit's
+  stale check) counts a booking's whole unload, not only its slot.

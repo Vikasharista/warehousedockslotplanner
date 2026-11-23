@@ -73,4 +73,15 @@ class SolverSettingsTest {
         java.nio.file.Files.writeString(off, "bump_enabled=false\nbump_penalty=0\n");
         org.assertj.core.api.Assertions.assertThat(SolverSettings.withOverrides(off).bumping().enabled()).isFalse();
     }
+
+    @Test
+    void theSearchStartsFromThePriorityFirstPlanUnlessConfiguredOtherwise(@TempDir Path dir) throws Exception {
+        assertThat(SolverSettings.defaults().warmStart()).isEqualTo("PRIORITY_FIRST");
+        Path none = dir.resolve("none.properties");
+        Files.writeString(none, "warm_start=none\n");
+        assertThat(SolverSettings.withOverrides(none).warmStart()).isEqualTo("NONE");
+        Path bad = dir.resolve("bad.properties");
+        Files.writeString(bad, "warm_start=RANDOM\n");
+        assertThatThrownBy(() -> SolverSettings.withOverrides(bad)).hasMessageContaining("warm_start");
+    }
 }

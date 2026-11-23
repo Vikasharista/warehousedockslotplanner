@@ -47,6 +47,11 @@ def confidence(age_min: float, s: EtaSettings) -> str:
     return "LOW"
 
 
+def worth_writing(eta: dt.datetime, last_eta: dt.datetime | None, s: EtaSettings) -> bool:
+    """A new estimate is written only when it moved `write_threshold_min` (10) minutes or more from the last one."""
+    return last_eta is None or abs((eta - last_eta).total_seconds()) >= s.write_threshold_min * 60
+
+
 def estimates_for(pings: list[dict], route: Route, speed_kmph: float, as_of: dt.datetime,
                   s: EtaSettings) -> list[dict]:
     """The estimates the service would have written for one shipment, tick by tick, up to `as_of`."""
@@ -72,9 +77,7 @@ def estimates_for(pings: list[dict], route: Route, speed_kmph: float, as_of: dt.
                 km_cache[ping["ping_id"]] = km
             remaining = max(0.0, route.length_km - km_cache[ping["ping_id"]])
             eta = ping["recorded_at"] + dt.timedelta(hours=remaining / speed_kmph)
-            moved = (last_written is None
-                     or abs((eta - last_written["eta_ts"]).total_seconds()) >= s.write_threshold_min * 60)
-            if moved:
+            if worth_writing(eta, None if last_written is None else last_written["eta_ts"], s):
                 last_written = {"shipment_id": ping["shipment_id"], "vehicle_id": ping["vehicle_id"],
                                 "lane_id": ping["lane_id"], "ping_id": ping["ping_id"],
                                 "remaining_km": round(remaining, 2), "eta_ts": eta,

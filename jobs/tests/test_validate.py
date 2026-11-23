@@ -139,6 +139,14 @@ def test_a_live_side_hold_occupies_its_slot(seeded):
     assert check_ids(seeded, run) == ["V3"]
 
 
+def test_a_side_hold_occupies_the_dock_for_its_whole_unload(seeded):
+    # SHP1009 (75-minute unload) holds D4 12:00: it runs 15 minutes into SHP1012's 13:00 allocation (phase 6 fix).
+    _side_hold(seeded, "SHP1009", "D4", "12:00", "2026-08-04T09:50:00+05:30")
+    run = store_run(seeded, "RUN-T-HOLD-LONG", VALID)
+    assert check_ids(seeded, run) == ["V3"]
+    assert any("SHP1009" in v.detail for v in validate.validate(seeded, run))
+
+
 def test_an_expired_side_hold_frees_its_slot(seeded):
     # Booked 09:30 with a 15-minute expiry: gone by 09:55.
     _side_hold(seeded, "SHP1018", "D5", "12:00", "2026-08-04T09:30:00+05:30")
