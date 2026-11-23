@@ -31,6 +31,12 @@ func (h *handlers) registerCases(mux *http.ServeMux) {
 		respond(w)(h.st.SetExceptionStatus(r.Context(), id, req.Status))
 	}))
 	mux.HandleFunc("POST /api/agent/cases", h.openCase)
+	mux.HandleFunc("GET /api/agent/cases/{case}", h.id("case", func(w http.ResponseWriter, r *http.Request, id string) {
+		respond(w)(h.st.GetCase(r.Context(), id))
+	}))
+	mux.HandleFunc("GET /api/agent/facilities/{facility}", h.id("facility", func(w http.ResponseWriter, r *http.Request, id string) {
+		respond(w)(h.st.FacilityInfo(r.Context(), id))
+	}))
 
 	mux.HandleFunc("GET /api/facilities/{facility}/driver-cases", h.facility(func(w http.ResponseWriter, r *http.Request, f string) {
 		respond(w)(h.st.DriverCasesView(r.Context(), f))

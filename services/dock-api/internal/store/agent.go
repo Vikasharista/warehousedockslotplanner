@@ -30,7 +30,14 @@ type AgentBooking struct {
 
 // AgentShipment is what the driver agent needs to answer "where is my slot?".
 type AgentShipment struct {
-	ShipmentID       string        `json:"shipmentId"`
+	ShipmentID          string  `json:"shipmentId"`
+	OrderReference      string  `json:"orderReference"`
+	VehicleRegistration *string `json:"vehicleRegistration,omitempty"`
+	FacilityID          string  `json:"facilityId"`
+	FacilityName        string  `json:"facilityName"`
+	RequiredDockType    string  `json:"requiredDockType"`
+	// AsOf is the planner's clock when this was read: an agent never plans on its own clock.
+	AsOf             time.Time     `json:"asOf"`
 	DriverName       string        `json:"driverName"`
 	DriverPhone      string        `json:"driverPhone"`
 	PriorityCode     string        `json:"priorityCode"`
@@ -47,7 +54,12 @@ type AgentShipment struct {
 	PredictedWaitMin *int          `json:"predictedWaitMin,omitempty"`
 	// Approval is the slot change waiting for a coordinator (HIGH and CRITICAL loads), if any.
 	Approval *ApprovalRequest `json:"approvalRequest,omitempty"`
-	Message  string           `json:"message"`
+	// CanMakeBooking is the solver's rule for the booking: it starts no earlier than the truck can be ready (gate-in,
+	// or the effective ETA plus the gate buffer, plus the low-confidence margin). False means the planner moves it.
+	CanMakeBooking *bool `json:"canMakeBooking,omitempty"`
+	// ReportGateBy is when the driver should be at the gate for the booking (its start minus the gate buffer).
+	ReportGateBy *time.Time `json:"reportGateBy,omitempty"`
+	Message      string     `json:"message"`
 }
 
 var nonDigits = regexp.MustCompile(`\D`)
@@ -84,23 +96,33 @@ func (s *Store) ShipmentsByPhone(ctx context.Context, phone string) ([]AgentShip
 func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShipment, error) {
 	db := s.GetDB(ctx)
 	var rows []struct {
-		ShipmentID    string
-		DriverName    string
-		DriverPhone   string
-		PriorityCode  string
-		OriginCity    string
-		Status        string
-		Eta           *time.Time
-		EtaSource     *string
-		EtaConfidence *string
-		GateIn        *time.Time
+		ShipmentID          string
+		OrderReference      string
+		VehicleRegistration *string
+		FacilityID          string
+		FacilityName        string
+		RequiredDockType    string
+		AsOf                time.Time
+		DriverName          string
+		DriverPhone         string
+		PriorityCode        string
+		OriginCity          string
+		Status              string
+		Eta                 *time.Time
+		EtaSource           *string
+		EtaConfidence       *string
+		GateIn              *time.Time
 	}
 	if err := db.Raw(`
-		SELECT s.shipment_id, d.driver_name, d.phone AS driver_phone, s.priority_code, s.origin_city,
+		SELECT s.shipment_id, s.order_reference, v.registration_number AS vehicle_registration,
+		       s.destination_facility_id AS facility_id, f.facility_name, s.required_dock_type,
+		       setuhaul_now() AS as_of, d.driver_name, d.phone AS driver_phone, s.priority_code, s.origin_city,
 		       s.current_status AS status, e.eta_ts AS eta, e.source AS eta_source, e.confidence AS eta_confidence,
 		       fc.gate_in_ts AS gate_in
 		FROM shipments s
 		JOIN drivers d ON d.driver_id = s.driver_id
+		JOIN facilities f ON f.facility_id = s.destination_facility_id
+		LEFT JOIN vehicles v ON v.vehicle_id = s.vehicle_id
 		LEFT JOIN LATERAL effective_eta(s.shipment_id, setuhaul_now()) e ON TRUE
 		LEFT JOIN facility_checkins fc ON fc.shipment_id = s.shipment_id AND fc.gate_in_ts <= setuhaul_now()
 		WHERE s.shipment_id = ? AND s.created_at <= setuhaul_now()`, shipmentID).Scan(&rows).Error; err != nil {
@@ -110,7 +132,9 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 		return nil, errors.NewRecordNotFoundError("no shipment " + shipmentID)
 	}
 	r := rows[0]
-	out := AgentShipment{ShipmentID: r.ShipmentID, DriverName: r.DriverName, DriverPhone: r.DriverPhone,
+	out := AgentShipment{ShipmentID: r.ShipmentID, OrderReference: r.OrderReference,
+		VehicleRegistration: r.VehicleRegistration, FacilityID: r.FacilityID, FacilityName: r.FacilityName,
+		RequiredDockType: r.RequiredDockType, AsOf: r.AsOf, DriverName: r.DriverName, DriverPhone: r.DriverPhone,
 		PriorityCode: r.PriorityCode, OriginCity: r.OriginCity, Status: r.Status, Eta: r.Eta, EtaSource: r.EtaSource,
 		EtaConfidence: r.EtaConfidence, GateIn: r.GateIn}
 	var bookings []AgentBooking
@@ -159,7 +183,63 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 	if len(plan) > 0 {
 		out.PlanStatus, out.PlanReason, out.PredictedWaitMin = &plan[0].AllocationStatus, plan[0].ReasonCode, plan[0].PredictedWaitMin
 	}
+	if out.Booking != nil {
+		gate := out.Booking.Start.Add(-time.Duration(s.settings.GateBufferMin) * time.Minute)
+		ok := true
+		if out.GateIn == nil && out.Eta != nil {
+			ready := out.Eta.Add(time.Duration(s.settings.GateBufferMin) * time.Minute)
+			if out.EtaConfidence != nil && *out.EtaConfidence == "LOW" {
+				ready = ready.Add(time.Duration(s.settings.LowConfidenceMarginMin) * time.Minute)
+			}
+			ok = !out.Booking.Start.Before(ready)
+		}
+		out.CanMakeBooking, out.ReportGateBy = &ok, &gate
+	}
 	out.Message = driverMessage(&out)
+	return &out, nil
+}
+
+// Facility is what a driver may ask about the destination: hours, the last start time and the gate contacts.
+type Facility struct {
+	FacilityID    string            `json:"facilityId"`
+	FacilityName  string            `json:"facilityName"`
+	City          string            `json:"city"`
+	OpenTime      string            `json:"openTime"`
+	CloseTime     string            `json:"closeTime"`
+	LastStartTime *string           `json:"lastStartTime,omitempty"`
+	GateBufferMin int               `json:"gateBufferMin"`
+	Contacts      []FacilityContact `json:"contacts" gorm:"-"`
+}
+
+// FacilityContact is a person at the facility a driver may call.
+type FacilityContact struct {
+	Role  string `json:"role"`
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+}
+
+// FacilityInfo returns a facility's hours, last start time and active contacts.
+func (s *Store) FacilityInfo(ctx context.Context, facilityID string) (*Facility, error) {
+	db := s.GetDB(ctx)
+	var rows []Facility
+	if err := db.Raw(`SELECT f.facility_id, f.facility_name, f.city, to_char(f.open_time, 'HH24:MI') AS open_time,
+			to_char(f.close_time, 'HH24:MI') AS close_time,
+			(SELECT r.rule_value FROM facility_rules r WHERE r.facility_id = f.facility_id AND r.active_flag = 1
+			   AND r.rule_type = 'LAST_NEW_START_TIME' LIMIT 1) AS last_start_time
+		FROM facilities f WHERE f.facility_id = ?`, facilityID).Scan(&rows).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	if len(rows) == 0 {
+		return nil, errors.NewRecordNotFoundError("no facility " + facilityID)
+	}
+	out := rows[0]
+	out.GateBufferMin = s.settings.GateBufferMin
+	out.Contacts = []FacilityContact{}
+	if err := db.Raw(`SELECT contact_role AS role, contact_name AS name, phone FROM facility_contacts
+		WHERE facility_id = ? AND active_flag = 1 AND phone IS NOT NULL ORDER BY contact_role`, facilityID).
+		Scan(&out.Contacts).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
 	return &out, nil
 }
 

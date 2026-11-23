@@ -52,6 +52,12 @@ func (f *fakeStore) DecideRequest(ctx context.Context, id string, approve bool, 
 	status := map[bool]string{true: "APPROVED", false: "REJECTED"}[approve]
 	return &store.ApprovalRequest{RequestID: id, FacilityID: "FAC-1", Status: status}, f.err
 }
+func (f *fakeStore) GetCase(_ context.Context, id string) (*store.Case, error) {
+	return &store.Case{CaseID: id, Status: "OPEN"}, f.err
+}
+func (f *fakeStore) FacilityInfo(_ context.Context, id string) (*store.Facility, error) {
+	return &store.Facility{FacilityID: id}, f.err
+}
 func (f *fakeStore) DriverCasesView(context.Context, string) (*store.DriverCases, error) {
 	return &store.DriverCases{Approvals: []store.ApprovalRequest{}, Cases: []store.Case{}, Exceptions: []store.DriverException{}}, f.err
 }
@@ -175,6 +181,8 @@ func TestPhase7AccessMatrix(t *testing.T) {
 		{"POST", "/api/agent/exceptions", `{"threadId":"THR-1","type":"DELAY","description":"x"}`},
 		{"PATCH", "/api/agent/exceptions/EXC-1", `{"status":"OPEN"}`},
 		{"POST", "/api/agent/cases", `{"reasonCode":"OTHER","urgency":"LOW","summary":"x","channel":"SIM"}`},
+		{"GET", "/api/agent/cases/CASE-1", ""},
+		{"GET", "/api/agent/facilities/FAC-1", ""},
 	}
 	coordinatorRoutes := [][3]string{
 		{"GET", "/api/facilities/FAC-1/driver-cases", ""},

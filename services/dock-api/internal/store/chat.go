@@ -579,6 +579,11 @@ func (s *Store) OpenCases(ctx context.Context, facilityID string) ([]Case, error
 	return out, errors.RepositoryError(err)
 }
 
+// GetCase returns one case (the agent checks whether its escalation was resolved).
+func (s *Store) GetCase(ctx context.Context, id string) (*Case, error) {
+	return getCase(s.GetDB(ctx), id)
+}
+
 // AssignCase puts an open case on the signed-in coordinator.
 func (s *Store) AssignCase(ctx context.Context, id string) (*Case, error) {
 	db := s.GetDB(ctx)

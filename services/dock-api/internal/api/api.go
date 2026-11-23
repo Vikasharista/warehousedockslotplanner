@@ -57,6 +57,8 @@ type Store interface {
 	ResolveCase(ctx context.Context, id, reply string) (*store.Case, error)
 	DecideRequest(ctx context.Context, id string, approve bool, note string) (*store.ApprovalRequest, error)
 	DriverCasesView(ctx context.Context, facilityID string) (*store.DriverCases, error)
+	GetCase(ctx context.Context, id string) (*store.Case, error)
+	FacilityInfo(ctx context.Context, facilityID string) (*store.Facility, error)
 }
 
 // Auth signs users in and checks sessions (internal/auth).

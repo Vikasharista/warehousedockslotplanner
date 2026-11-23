@@ -331,3 +331,35 @@ func TestThreadsMessagesExceptionsAndCases(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, view.Cases)
 }
+
+func TestTripStatusCarriesThePlannersClockAndRules(t *testing.T) {
+	s := open(t)
+	ctx := agentCtx()
+	st, err := s.AgentShipment(ctx, "SHP1009")
+	require.NoError(t, err)
+	assert.Equal(t, "2026-08-04T09:55:00+05:30", st.AsOf.In(IST).Format("2006-01-02T15:04:05-07:00"))
+	assert.Equal(t, "FAC-JAI-01", st.FacilityID)
+	assert.NotEmpty(t, st.OrderReference)
+	require.NotNil(t, st.CanMakeBooking)
+	assert.Equal(t, st.Booking.Start.Add(-30*time.Minute), *st.ReportGateBy)
+
+	// An operations override wins over GPS and driver reports: an hour before the slot the truck makes it...
+	_, err = s.ReportETA(ctx, "SHP1009", st.Booking.Start.Add(-60*time.Minute), SourceOperations, "HIGH", "", "")
+	require.NoError(t, err)
+	early, err := s.AgentShipment(ctx, "SHP1009")
+	require.NoError(t, err)
+	assert.True(t, *early.CanMakeBooking)
+	// ...ten minutes before it does not (the 30-minute gate buffer).
+	exec(t, s, "UPDATE app_clock SET sim_anchor = sim_anchor + interval '1 minute'")
+	_, err = s.ReportETA(ctx, "SHP1009", st.Booking.Start.Add(-10*time.Minute), SourceOperations, "HIGH", "", "")
+	require.NoError(t, err)
+	late, err := s.AgentShipment(ctx, "SHP1009")
+	require.NoError(t, err)
+	assert.False(t, *late.CanMakeBooking, "ETA + 30-minute gate buffer is after the slot start")
+
+	f, err := s.FacilityInfo(ctx, "FAC-JAI-01")
+	require.NoError(t, err)
+	assert.Equal(t, 30, f.GateBufferMin)
+	assert.Equal(t, "21:00", *f.LastStartTime)
+	assert.NotEmpty(t, f.OpenTime)
+}
