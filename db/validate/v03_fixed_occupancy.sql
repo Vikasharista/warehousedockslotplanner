@@ -27,6 +27,7 @@ fixed_bookings AS (
     UNION ALL
     -- A live driver hold on another slot (is_current = 0 until the driver confirms) also occupies its slot for
     -- the held truck's whole unload, whoever holds it. Without the run's hold expiry every such hold counts as live.
+    -- A HIGH or CRITICAL truck's change waiting for approval is live until its request expires (hold_expires_at).
     SELECT a.shipment_id, sl.dock_id, sl.slot_start_ts,
            sl.slot_start_ts + make_interval(mins => GREATEST(s.expected_unload_min,
                (EXTRACT(EPOCH FROM sl.slot_end_ts - sl.slot_start_ts) / 60)::int)), TRUE
@@ -39,7 +40,7 @@ fixed_bookings AS (
       AND a.booked_at <= run.as_of_ts
       AND sl.facility_id = run.facility_id
       AND (run.settings ->> 'holdExpiryMin' IS NULL
-           OR a.booked_at + make_interval(mins => (run.settings ->> 'holdExpiryMin')::int) > run.as_of_ts)
+           OR hold_expires_at(a.appointment_id, a.booked_at, (run.settings ->> 'holdExpiryMin')::int) > run.as_of_ts)
 ),
 in_dock AS (
     SELECT fc.shipment_id, fc.actual_dock_id AS dock_id,

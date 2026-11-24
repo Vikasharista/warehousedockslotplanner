@@ -123,6 +123,81 @@ export interface Hold {
   expiresAt: string;
   confirmedAt?: string;
   cancelledAt?: string;
+  /** Set by confirm: CONFIRMED, or AWAITING_APPROVAL (HIGH and CRITICAL changes wait for a coordinator). */
+  outcome?: "CONFIRMED" | "AWAITING_APPROVAL";
+  approvalRequest?: ApprovalRequest;
+}
+
+/** A HIGH or CRITICAL truck's slot change waiting for a coordinator; the slot stays reserved until expiresAt. */
+export interface ApprovalRequest {
+  requestId: string;
+  shipmentId: string;
+  holdAppointmentId: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "WITHDRAWN";
+  priorityCode: string;
+  requestedAt: string;
+  requestedBy: string;
+  expiresAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  note?: string;
+  threadId?: string;
+  driverName: string;
+  fromDockCode?: string;
+  fromStart?: string;
+  toSlotId: string;
+  toDockCode: string;
+  toStart: string;
+}
+
+export interface CoordinatorCase {
+  caseId: string;
+  shipmentId?: string;
+  driverName?: string;
+  priorityCode?: string;
+  threadId?: string;
+  exceptionId?: string;
+  channel: string;
+  phone?: string;
+  reasonCode: string;
+  urgency: "LOW" | "NORMAL" | "URGENT";
+  summary: string;
+  status: "OPEN" | "ASSIGNED" | "RESOLVED";
+  createdAt: string;
+  createdBy: string;
+  assignedTo?: string;
+}
+
+export interface DriverException {
+  exceptionId: string;
+  threadId: string;
+  shipmentId?: string;
+  driverName: string;
+  priorityCode?: string;
+  type: string;
+  reportedAt: string;
+  delayMin?: number;
+  declaredEta?: string;
+  latestAcceptable?: string;
+  severity: string;
+  status: string;
+  description: string;
+}
+
+export interface ChatMessage {
+  messageId: string;
+  senderType: string;
+  text: string;
+  sentAt: string;
+  parsedIntent?: string;
+  requiresHumanReview: boolean;
+}
+
+export interface DriverCases {
+  approvals: ApprovalRequest[];
+  cases: CoordinatorCase[];
+  exceptions: DriverException[];
+  now: string;
 }
 
 export interface ReplanResult {
@@ -246,12 +321,14 @@ export interface AgentShipment {
   hold?: AgentBooking;
   planStatus?: string;
   planReason?: string;
+  approvalRequest?: ApprovalRequest;
   message: string;
 }
 
 export interface FeedChange {
   changeId: number;
-  shipmentId: string;
+  kind: "BOOKING" | "APPROVAL" | "REPLY";
+  shipmentId?: string;
   action: string;
   message: string;
   changedAt: string;
@@ -303,6 +380,17 @@ export const api = {
     changes: (after: number, limit = 100) =>
       call<{ changes: FeedChange[]; next: number; last: number }>(`/api/agent/changes?after=${after}&limit=${limit}`),
   },
+  // The Driver cases screen (coordinators only).
+  driverCases: () => call<DriverCases>(`${f}/driver-cases`),
+  threadMessages: (threadId: string) => call<ChatMessage[]>(`/api/threads/${encodeURIComponent(threadId)}/messages`),
+  approve: (id: string, note?: string) =>
+    call<ApprovalRequest>(`/api/approvals/${encodeURIComponent(id)}/approve`, { method: "POST", body: json({ note: note || undefined }) }),
+  reject: (id: string, note?: string) =>
+    call<ApprovalRequest>(`/api/approvals/${encodeURIComponent(id)}/reject`, { method: "POST", body: json({ note: note || undefined }) }),
+  assignCase: (id: string) => call<CoordinatorCase>(`/api/cases/${encodeURIComponent(id)}/assign`, { method: "POST" }),
+  resolveCase: (id: string, reply?: string) =>
+    call<CoordinatorCase>(`/api/cases/${encodeURIComponent(id)}/resolve`, { method: "POST", body: json({ reply: reply || undefined }) }),
+
   options: (shipmentId: string) => call<SlotOption[]>(`/api/shipments/${encodeURIComponent(shipmentId)}/options?limit=8`),
   hold: (shipmentId: string, slotId: string) => call<Hold>("/api/holds", { method: "POST", body: JSON.stringify({ shipmentId, slotId }) }),
   confirm: (id: string) => call<Hold>(`/api/holds/${encodeURIComponent(id)}/confirm`, { method: "POST" }),

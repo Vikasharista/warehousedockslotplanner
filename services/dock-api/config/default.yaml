@@ -23,6 +23,11 @@ planning:
   low_confidence_margin_min: 15
   horizon_hours: 12
   hold_expiry_min: 15
+  # A driver's slot change for these priorities waits for a coordinator; the held slot stays reserved this long.
+  approval_priorities: "HIGH,CRITICAL"
+  approval_reserve_min: 60
+  # How many times a truck may change its booked slot by chat (0 = no limit).
+  max_chat_reschedules: 2
 
 holds:
   sweep_every: 30s

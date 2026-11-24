@@ -919,3 +919,72 @@ table.grid tbody tr.is-selected {
     flex: 1;
   }
 }
+
+/* Driver cases: approvals, cases and exceptions on the left, a conversation on the right. */
+.cases {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.cases:has(.conversation) {
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+}
+.cases-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cases .row {
+  flex-wrap: wrap;
+}
+.cases .row input {
+  flex: 1;
+  min-width: 180px;
+}
+.conversation {
+  align-self: start;
+  position: sticky;
+  top: 12px;
+}
+.conversation .chat {
+  max-height: 70vh;
+}
+.from-driver .li-meta {
+  color: inherit;
+  opacity: 0.8;
+}
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.li-time.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.pill.u-urgent,
+.pill.sev-critical {
+  background: var(--p-critical);
+  color: #fff;
+}
+.pill.sev-high {
+  background: var(--p-high);
+  color: #fff;
+}
+.pill.u-normal,
+.pill.sev-medium {
+  background: var(--surface-2);
+  color: var(--text);
+}
+@media (max-width: 900px) {
+  .cases:has(.conversation) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .conversation {
+    position: static;
+  }
+}

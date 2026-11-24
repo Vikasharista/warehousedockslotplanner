@@ -153,3 +153,20 @@ def test_an_expired_side_hold_frees_its_slot(seeded):
     settings = json.dumps({"gateBufferMin": 30, "lowConfidenceMarginMin": 15, "holdExpiryMin": 15})
     run = store_run(seeded, "RUN-T-HOLD-OLD", VALID, settings=settings)
     assert validate.validate(seeded, run) == []
+
+
+def test_a_reservation_waiting_for_approval_outlasts_the_hold_expiry(seeded):
+    # Phase 7 (C2): the same 09:30 hold, but SHP1018's change waits for a coordinator until 10:30, so at 09:55 its
+    # slot is still taken; once the request is decided the slot is free again.
+    _side_hold(seeded, "SHP1018", "D5", "12:00", "2026-08-04T09:30:00+05:30")
+    seeded.execute(
+        """INSERT INTO slot_change_requests (request_id, facility_id, shipment_id, hold_appointment_id, priority_code,
+               request_status, requested_at, requested_by, expires_at)
+           VALUES ('REQ-T-HOLD', 'FAC-JAI-01', 'SHP1018', 'APT-T-HOLD', 'HIGH', 'PENDING',
+                   '2026-08-04T09:31:00+05:30', 'agent:test', '2026-08-04T10:31:00+05:30')""")
+    settings = json.dumps({"gateBufferMin": 30, "lowConfidenceMarginMin": 15, "holdExpiryMin": 15})
+    run = store_run(seeded, "RUN-T-RESERVED", VALID, settings=settings)
+    assert check_ids(seeded, run) == ["V3"]
+    seeded.execute("""UPDATE slot_change_requests SET request_status = 'REJECTED', decided_by = 'test',
+                          decided_at = '2026-08-04T09:50:00+05:30' WHERE request_id = 'REQ-T-HOLD'""")
+    assert validate.validate(seeded, run) == []

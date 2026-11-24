@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -49,6 +50,9 @@ func serve() error {
 		LowConfidenceMarginMin: v.GetInt("planning.low_confidence_margin_min"),
 		HorizonHours:           v.GetInt("planning.horizon_hours"),
 		HoldExpiryMin:          v.GetInt("planning.hold_expiry_min"),
+		ApprovalPriorities:     strings.Fields(strings.ReplaceAll(v.GetString("planning.approval_priorities"), ",", " ")),
+		ApprovalReserveMin:     v.GetInt("planning.approval_reserve_min"),
+		MaxChatReschedules:     v.GetInt("planning.max_chat_reschedules"),
 	})
 	sv := solver.New(v.GetString("solver.url"), v.GetDuration("solver.timeout"))
 	au, err := auth.New(st, auth.Settings{
@@ -93,7 +97,7 @@ func serve() error {
 	return nil
 }
 
-// sweep cancels expired driver holds on a timer.
+// sweep cancels expired driver holds and approval requests on a timer.
 func sweep(ctx context.Context, st *store.Store, every time.Duration) {
 	if every <= 0 {
 		every = 30 * time.Second

@@ -30,7 +30,14 @@ type AgentBooking struct {
 
 // AgentShipment is what the driver agent needs to answer "where is my slot?".
 type AgentShipment struct {
-	ShipmentID       string        `json:"shipmentId"`
+	ShipmentID          string  `json:"shipmentId"`
+	OrderReference      string  `json:"orderReference"`
+	VehicleRegistration *string `json:"vehicleRegistration,omitempty"`
+	FacilityID          string  `json:"facilityId"`
+	FacilityName        string  `json:"facilityName"`
+	RequiredDockType    string  `json:"requiredDockType"`
+	// AsOf is the planner's clock when this was read: an agent never plans on its own clock.
+	AsOf             time.Time     `json:"asOf"`
 	DriverName       string        `json:"driverName"`
 	DriverPhone      string        `json:"driverPhone"`
 	PriorityCode     string        `json:"priorityCode"`
@@ -45,7 +52,14 @@ type AgentShipment struct {
 	PlanStatus       *string       `json:"planStatus,omitempty"`
 	PlanReason       *string       `json:"planReason,omitempty"`
 	PredictedWaitMin *int          `json:"predictedWaitMin,omitempty"`
-	Message          string        `json:"message"`
+	// Approval is the slot change waiting for a coordinator (HIGH and CRITICAL loads), if any.
+	Approval *ApprovalRequest `json:"approvalRequest,omitempty"`
+	// CanMakeBooking is the solver's rule for the booking: it starts no earlier than the truck can be ready (gate-in,
+	// or the effective ETA plus the gate buffer, plus the low-confidence margin). False means the planner moves it.
+	CanMakeBooking *bool `json:"canMakeBooking,omitempty"`
+	// ReportGateBy is when the driver should be at the gate for the booking (its start minus the gate buffer).
+	ReportGateBy *time.Time `json:"reportGateBy,omitempty"`
+	Message      string     `json:"message"`
 }
 
 var nonDigits = regexp.MustCompile(`\D`)
@@ -82,23 +96,33 @@ func (s *Store) ShipmentsByPhone(ctx context.Context, phone string) ([]AgentShip
 func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShipment, error) {
 	db := s.GetDB(ctx)
 	var rows []struct {
-		ShipmentID    string
-		DriverName    string
-		DriverPhone   string
-		PriorityCode  string
-		OriginCity    string
-		Status        string
-		Eta           *time.Time
-		EtaSource     *string
-		EtaConfidence *string
-		GateIn        *time.Time
+		ShipmentID          string
+		OrderReference      string
+		VehicleRegistration *string
+		FacilityID          string
+		FacilityName        string
+		RequiredDockType    string
+		AsOf                time.Time
+		DriverName          string
+		DriverPhone         string
+		PriorityCode        string
+		OriginCity          string
+		Status              string
+		Eta                 *time.Time
+		EtaSource           *string
+		EtaConfidence       *string
+		GateIn              *time.Time
 	}
 	if err := db.Raw(`
-		SELECT s.shipment_id, d.driver_name, d.phone AS driver_phone, s.priority_code, s.origin_city,
+		SELECT s.shipment_id, s.order_reference, v.registration_number AS vehicle_registration,
+		       s.destination_facility_id AS facility_id, f.facility_name, s.required_dock_type,
+		       setuhaul_now() AS as_of, d.driver_name, d.phone AS driver_phone, s.priority_code, s.origin_city,
 		       s.current_status AS status, e.eta_ts AS eta, e.source AS eta_source, e.confidence AS eta_confidence,
 		       fc.gate_in_ts AS gate_in
 		FROM shipments s
 		JOIN drivers d ON d.driver_id = s.driver_id
+		JOIN facilities f ON f.facility_id = s.destination_facility_id
+		LEFT JOIN vehicles v ON v.vehicle_id = s.vehicle_id
 		LEFT JOIN LATERAL effective_eta(s.shipment_id, setuhaul_now()) e ON TRUE
 		LEFT JOIN facility_checkins fc ON fc.shipment_id = s.shipment_id AND fc.gate_in_ts <= setuhaul_now()
 		WHERE s.shipment_id = ? AND s.created_at <= setuhaul_now()`, shipmentID).Scan(&rows).Error; err != nil {
@@ -108,7 +132,9 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 		return nil, errors.NewRecordNotFoundError("no shipment " + shipmentID)
 	}
 	r := rows[0]
-	out := AgentShipment{ShipmentID: r.ShipmentID, DriverName: r.DriverName, DriverPhone: r.DriverPhone,
+	out := AgentShipment{ShipmentID: r.ShipmentID, OrderReference: r.OrderReference,
+		VehicleRegistration: r.VehicleRegistration, FacilityID: r.FacilityID, FacilityName: r.FacilityName,
+		RequiredDockType: r.RequiredDockType, AsOf: r.AsOf, DriverName: r.DriverName, DriverPhone: r.DriverPhone,
 		PriorityCode: r.PriorityCode, OriginCity: r.OriginCity, Status: r.Status, Eta: r.Eta, EtaSource: r.EtaSource,
 		EtaConfidence: r.EtaConfidence, GateIn: r.GateIn}
 	var bookings []AgentBooking
@@ -116,7 +142,7 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 		SELECT a.appointment_id, a.slot_id, dk.dock_code, sl.slot_start_ts AS start, sl.slot_end_ts AS "end",
 		       a.appointment_status AS status, a.booking_source AS source,
 		       CASE WHEN a.appointment_status = 'PENDING_CONFIRMATION'
-		            THEN a.booked_at + make_interval(mins => ?) END AS expires_at
+		            THEN hold_expires_at(a.appointment_id, a.booked_at, ?) END AS expires_at
 		FROM appointments a
 		JOIN appointment_slots sl ON sl.slot_id = a.slot_id
 		JOIN docks dk ON dk.dock_id = sl.dock_id
@@ -130,6 +156,15 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 			out.Hold = &b
 		} else if out.Booking == nil {
 			out.Booking = &b
+		}
+	}
+	if out.Hold != nil {
+		req, err := requestForHold(db, out.Hold.AppointmentID)
+		if err != nil {
+			return nil, err
+		}
+		if req != nil && req.Status == RequestPending {
+			out.Approval = req
 		}
 	}
 	var plan []struct {
@@ -148,7 +183,63 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 	if len(plan) > 0 {
 		out.PlanStatus, out.PlanReason, out.PredictedWaitMin = &plan[0].AllocationStatus, plan[0].ReasonCode, plan[0].PredictedWaitMin
 	}
+	if out.Booking != nil {
+		gate := out.Booking.Start.Add(-time.Duration(s.settings.GateBufferMin) * time.Minute)
+		ok := true
+		if out.GateIn == nil && out.Eta != nil {
+			ready := out.Eta.Add(time.Duration(s.settings.GateBufferMin) * time.Minute)
+			if out.EtaConfidence != nil && *out.EtaConfidence == "LOW" {
+				ready = ready.Add(time.Duration(s.settings.LowConfidenceMarginMin) * time.Minute)
+			}
+			ok = !out.Booking.Start.Before(ready)
+		}
+		out.CanMakeBooking, out.ReportGateBy = &ok, &gate
+	}
 	out.Message = driverMessage(&out)
+	return &out, nil
+}
+
+// Facility is what a driver may ask about the destination: hours, the last start time and the gate contacts.
+type Facility struct {
+	FacilityID    string            `json:"facilityId"`
+	FacilityName  string            `json:"facilityName"`
+	City          string            `json:"city"`
+	OpenTime      string            `json:"openTime"`
+	CloseTime     string            `json:"closeTime"`
+	LastStartTime *string           `json:"lastStartTime,omitempty"`
+	GateBufferMin int               `json:"gateBufferMin"`
+	Contacts      []FacilityContact `json:"contacts" gorm:"-"`
+}
+
+// FacilityContact is a person at the facility a driver may call.
+type FacilityContact struct {
+	Role  string `json:"role"`
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+}
+
+// FacilityInfo returns a facility's hours, last start time and active contacts.
+func (s *Store) FacilityInfo(ctx context.Context, facilityID string) (*Facility, error) {
+	db := s.GetDB(ctx)
+	var rows []Facility
+	if err := db.Raw(`SELECT f.facility_id, f.facility_name, f.city, to_char(f.open_time, 'HH24:MI') AS open_time,
+			to_char(f.close_time, 'HH24:MI') AS close_time,
+			(SELECT r.rule_value FROM facility_rules r WHERE r.facility_id = f.facility_id AND r.active_flag = 1
+			   AND r.rule_type = 'LAST_NEW_START_TIME' LIMIT 1) AS last_start_time
+		FROM facilities f WHERE f.facility_id = ?`, facilityID).Scan(&rows).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	if len(rows) == 0 {
+		return nil, errors.NewRecordNotFoundError("no facility " + facilityID)
+	}
+	out := rows[0]
+	out.GateBufferMin = s.settings.GateBufferMin
+	out.Contacts = []FacilityContact{}
+	if err := db.Raw(`SELECT contact_role AS role, contact_name AS name, phone FROM facility_contacts
+		WHERE facility_id = ? AND active_flag = 1 AND phone IS NOT NULL ORDER BY contact_role`, facilityID).
+		Scan(&out.Contacts).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
 	return &out, nil
 }
 
@@ -184,6 +275,10 @@ func driverMessage(a *AgentShipment) string {
 			a.Booking.DockCode, hm(a.Booking.Start))
 	case a.GateIn != nil:
 		return fmt.Sprintf("You are checked in at the gate since %s. A dock will be assigned shortly.", hm(*a.GateIn))
+	case a.Approval != nil && a.Booking != nil:
+		return fmt.Sprintf("Your change to dock %s at %s is waiting for a coordinator until %s. Until then your slot "+
+			"stays dock %s at %s.", a.Approval.ToDockCode, hm(a.Approval.ToStart), hm(a.Approval.ExpiresAt),
+			a.Booking.DockCode, hm(a.Booking.Start))
 	case a.Hold != nil && a.Hold.ExpiresAt != nil:
 		return fmt.Sprintf("You are holding dock %s at %s until %s. Confirm to keep it, or it is released.",
 			a.Hold.DockCode, hm(a.Hold.Start), hm(*a.Hold.ExpiresAt))
@@ -202,19 +297,27 @@ func driverMessage(a *AgentShipment) string {
 	}
 }
 
-// Change is one booking change for the agent, newest last.
+// FeedChange is one change for the agent, oldest first: a booking the solver made, moved or released (kind
+// BOOKING), a coordinator's decision on a slot change (APPROVAL) or a coordinator's reply to a case (REPLY).
 type FeedChange struct {
-	ChangeID     int64      `json:"changeId"`
-	ShipmentID   string     `json:"shipmentId"`
-	DriverPhone  string     `json:"driverPhone"`
-	Action       string     `json:"action"`
-	FromDockCode *string    `json:"fromDockCode,omitempty"`
-	FromStart    *time.Time `json:"fromStart,omitempty"`
-	ToDockCode   *string    `json:"toDockCode,omitempty"`
-	ToStart      *time.Time `json:"toStart,omitempty"`
-	ReasonCode   *string    `json:"reasonCode,omitempty"`
-	ChangedAt    time.Time  `json:"changedAt"`
-	Message      string     `json:"message"`
+	ChangeID      int64      `json:"changeId"`
+	Kind          string     `json:"kind"`
+	ShipmentID    *string    `json:"shipmentId,omitempty"`
+	DriverPhone   *string    `json:"driverPhone,omitempty"`
+	RequestID     *string    `json:"requestId,omitempty"`
+	CaseID        *string    `json:"caseId,omitempty"`
+	Channel       *string    `json:"channel,omitempty"`
+	ChannelUserID *string    `json:"channelUserId,omitempty"`
+	ReplyText     *string    `json:"replyText,omitempty"`
+	Note          *string    `json:"note,omitempty"`
+	Action        string     `json:"action"`
+	FromDockCode  *string    `json:"fromDockCode,omitempty"`
+	FromStart     *time.Time `json:"fromStart,omitempty"`
+	ToDockCode    *string    `json:"toDockCode,omitempty"`
+	ToStart       *time.Time `json:"toStart,omitempty"`
+	ReasonCode    *string    `json:"reasonCode,omitempty"`
+	ChangedAt     time.Time  `json:"changedAt"`
+	Message       string     `json:"message"`
 }
 
 // ChangesAfter returns up to limit booking changes with change_id > after, oldest first, and the newest change id
@@ -226,12 +329,15 @@ func (s *Store) ChangesAfter(ctx context.Context, after int64, limit int) ([]Fee
 		return nil, 0, errors.RepositoryError(err)
 	}
 	if err := s.GetDB(ctx).Raw(`
-		SELECT c.change_id, c.shipment_id, d.phone AS driver_phone, c.action, fd.dock_code AS from_dock_code,
-		       fs.slot_start_ts AS from_start, td.dock_code AS to_dock_code, ts.slot_start_ts AS to_start,
-		       c.reason_code, c.changed_at
+		SELECT c.change_id, c.kind, c.shipment_id, COALESCE(d.phone, cc.phone) AS driver_phone, c.request_id,
+		       c.case_id, cc.channel, cc.channel_user_id, c.message_text AS reply_text,
+		       CASE WHEN c.kind = 'APPROVAL' THEN c.detail END AS note, c.action,
+		       fd.dock_code AS from_dock_code, fs.slot_start_ts AS from_start, td.dock_code AS to_dock_code,
+		       ts.slot_start_ts AS to_start, c.reason_code, c.changed_at
 		FROM booking_changes c
-		JOIN shipments s ON s.shipment_id = c.shipment_id
-		JOIN drivers d ON d.driver_id = s.driver_id
+		LEFT JOIN shipments s ON s.shipment_id = c.shipment_id
+		LEFT JOIN drivers d ON d.driver_id = s.driver_id
+		LEFT JOIN coordinator_cases cc ON cc.case_id = c.case_id
 		LEFT JOIN appointment_slots fs ON fs.slot_id = c.from_slot_id
 		LEFT JOIN docks fd ON fd.dock_id = fs.dock_id
 		LEFT JOIN appointment_slots ts ON ts.slot_id = c.to_slot_id
@@ -248,15 +354,35 @@ func (s *Store) ChangesAfter(ctx context.Context, after int64, limit int) ([]Fee
 }
 
 func changeMessage(c *FeedChange) string {
+	id := deref(c.ShipmentID)
+	note := ""
+	if c.Note != nil && *c.Note != "" {
+		note = " Coordinator's note: " + *c.Note
+	}
 	switch c.Action {
 	case "NEW":
-		return fmt.Sprintf("%s is booked on dock %s at %s.", c.ShipmentID, deref(c.ToDockCode), hmPtr(c.ToStart))
+		return fmt.Sprintf("%s is booked on dock %s at %s.", id, deref(c.ToDockCode), hmPtr(c.ToStart))
 	case "MOVED":
-		return fmt.Sprintf("%s moved from dock %s at %s to dock %s at %s because %s.", c.ShipmentID,
+		return fmt.Sprintf("%s moved from dock %s at %s to dock %s at %s because %s.", id,
 			deref(c.FromDockCode), hmPtr(c.FromStart), deref(c.ToDockCode), hmPtr(c.ToStart), words(c.ReasonCode))
-	default:
-		return fmt.Sprintf("%s lost its slot (dock %s at %s) because %s; a coordinator will follow up.", c.ShipmentID,
+	case "RELEASED":
+		return fmt.Sprintf("%s lost its slot (dock %s at %s) because %s; a coordinator will follow up.", id,
 			deref(c.FromDockCode), hmPtr(c.FromStart), words(c.ReasonCode))
+	case "APPROVED":
+		return fmt.Sprintf("%s: your change is approved. Your slot is now dock %s at %s.%s", id, deref(c.ToDockCode),
+			hmPtr(c.ToStart), note)
+	case "REJECTED", "EXPIRED":
+		why := "the coordinator did not approve dock %s at %s"
+		if c.Action == "EXPIRED" {
+			why = "your change to dock %s at %s was not approved in time"
+		}
+		head := fmt.Sprintf("%s: "+why, id, deref(c.ToDockCode), hmPtr(c.ToStart))
+		if c.FromDockCode == nil { // the old booking was released meanwhile
+			return head + "; a coordinator will plan your slot." + note
+		}
+		return fmt.Sprintf("%s, so your slot stays dock %s at %s.%s", head, *c.FromDockCode, hmPtr(c.FromStart), note)
+	default: // REPLY
+		return "Message from the dock office: " + deref(c.ReplyText)
 	}
 }
 
