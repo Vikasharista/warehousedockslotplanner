@@ -13,7 +13,7 @@ def _col(result, name):
 
 def test_every_query_has_a_header_and_unique_id():
     ids = [q.id for q in audit.load_queries()]
-    assert ids == [f"A{n}" for n in range(1, 11)]
+    assert ids == [f"A{n}" for n in range(1, 15)]
 
 
 def test_findings_reproduce_on_the_snapshot(seeded):
@@ -45,6 +45,19 @@ def test_findings_reproduce_on_the_snapshot(seeded):
     # A9 and A10.
     assert _col(r["A9"], "shipment_id") == ["SHP1013", "SHP1017"]
     assert sorted(set(_col(r["A10"], "shipment_id"))) == ["SHP1008", "SHP1019"]
+    # A11: four drivers each have two open trips, one of them at another facility.
+    assert _col(r["A11"], "driver_id") == ["DRV003", "DRV004", "DRV006", "DRV007"]
+    assert "SHP1021 to FAC-GGN-01" in _col(r["A11"], "open_trips")[2]
+    # A12: the THR001 message again on THR009, flagged as a duplicate, its exception DUPLICATE.
+    assert _col(r["A12"], "thread_id") == ["THR001", "THR009"]
+    assert _col(r["A12"], "is_duplicate") == [0, 1]
+    assert "DUPLICATE" in _col(r["A12"], "exception_status")
+    # A13: the reefer exception email failed; another notice is still queued.
+    assert dict(zip(_col(r["A13"], "operational_message_id"), _col(r["A13"], "delivery_status")))["OM004"] == "FAILED"
+    assert set(_col(r["A13"], "delivery_status")) == {"FAILED", "QUEUED"}
+    # A14: every ETA update is DRIVER_DECLARED.
+    assert set(_col(r["A14"], "source_type")) == {"DRIVER_DECLARED"}
+    assert sum(_col(r["A14"], "updates")) == 12
 
 
 def test_committed_report_matches_a_fresh_run(seeded):

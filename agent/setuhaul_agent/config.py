@@ -12,6 +12,7 @@ class Policy:
     options_searched: int = 20      # slots read from the planner before the driver's own limits are applied
     max_clarifications: int = 2     # failed clarification turns before a coordinator takes over
     session_ttl_hours: int = 24     # re-verify the trip after this long (planner time)
+    conflict_min: int = 60          # a driver's "I am here" this far from the GPS time goes to a coordinator to check
     # Only for wording ("a coordinator approves the change"); the planner decides, and its 202 is what counts.
     approval_hint_priorities: tuple = ("HIGH", "CRITICAL")
 

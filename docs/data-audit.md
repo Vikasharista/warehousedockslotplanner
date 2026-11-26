@@ -16,6 +16,10 @@ Do not edit by hand: change a query and re-run the job.
 | [A8](#a8) | The snapshot mixes times of day | 10 |
 | [A9](#a9) | Some ETAs are low confidence | 2 |
 | [A10](#a10) | Cancelled loads still carry appointment history | 2 |
+| [A11](#a11) | A driver can have two open trips | 4 |
+| [A12](#a12) | The chat channel repeats driver messages | 2 |
+| [A13](#a13) | A warehouse notice failed or never left | 2 |
+| [A14](#a14) | Every ETA update comes from the driver | 3 |
 
 <a id="a1"></a>
 ## A1. A broken or blocked dock still offers an open slot
@@ -263,3 +267,89 @@ ORDER BY s.shipment_id, a.appointment_id;
 | --- | --- | --- | --- | --- | --- |
 | SHP1008 | CANCELLED | APT1008 | CANCELLED | SLOT-JAI-017 | 0 |
 | SHP1019 | CANCELLED | APT1019 | CANCELLED | SLOT-JAI-051 | 0 |
+
+<a id="a11"></a>
+## A11. A driver can have two open trips
+
+**What the solver does:** A phone number alone does not say which shipment a message is about. The agent lists the open trips and asks; it never guesses (guide case DRV004, ladder rung 2).
+
+Query: [`db/audit/a11_driver_two_open_trips.sql`](../db/audit/a11_driver_two_open_trips.sql)
+
+```sql
+SELECT d.driver_id, d.phone,
+       string_agg(s.shipment_id || ' to ' || s.destination_facility_id, ', ' ORDER BY s.shipment_id) AS open_trips
+FROM drivers d
+JOIN shipments s ON s.driver_id = d.driver_id
+WHERE s.current_status NOT IN ('COMPLETED', 'CANCELLED')
+GROUP BY d.driver_id, d.phone
+HAVING count(*) > 1
+ORDER BY d.driver_id;
+```
+
+| driver_id | phone | open_trips |
+| --- | --- | --- |
+| DRV003 | +91-9000010003 | SHP1003 to FAC-JAI-01, SHP1018 to FAC-JAI-01 |
+| DRV004 | +91-9000010004 | SHP1004 to FAC-JAI-01, SHP1020 to FAC-JAI-01 |
+| DRV006 | +91-9000010006 | SHP1006 to FAC-JAI-01, SHP1021 to FAC-GGN-01 |
+| DRV007 | +91-9000010007 | SHP1007 to FAC-JAI-01, SHP1016 to FAC-JAI-01 |
+
+<a id="a12"></a>
+## A12. The chat channel repeats driver messages
+
+**What the solver does:** The same text arrives on two threads (THR001 and THR009). A retried message is recorded once (by message id) and a second report of the same problem on the same day is stored as DUPLICATE, so it is never planned twice.
+
+Query: [`db/audit/a12_repeated_driver_messages.sql`](../db/audit/a12_repeated_driver_messages.sql)
+
+```sql
+SELECT m.chat_message_id, m.thread_id, m.message_text, m.is_duplicate, x.exception_id, x.exception_status
+FROM chat_messages m
+LEFT JOIN driver_exceptions x ON x.thread_id = m.thread_id
+WHERE m.sender_type = 'DRIVER'
+  AND m.message_text IN (SELECT message_text FROM chat_messages WHERE sender_type = 'DRIVER'
+                         GROUP BY message_text HAVING count(*) > 1)
+ORDER BY m.message_ts, m.chat_message_id;
+```
+
+| chat_message_id | thread_id | message_text | is_duplicate | exception_id | exception_status |
+| --- | --- | --- | --- | --- | --- |
+| MSG001 | THR001 | Traffic after Shahpura. Reaching around 11:20. Any slot after 12? | 0 | EXC001 | NEEDS_INFORMATION |
+| MSG015 | THR009 | Traffic after Shahpura. Reaching around 11:20. Any slot after 12? | 1 | EXC009 | DUPLICATE |
+
+<a id="a13"></a>
+## A13. A warehouse notice failed or never left
+
+**What the solver does:** OM004, the reefer exception for SHP1015, failed to reach the night shift, and another notice is still queued. A hand-off must not depend on an email that can fail: coordinator cases live on the Driver cases screen, and the driver hears the case reference at once.
+
+Query: [`db/audit/a13_undelivered_operational_messages.sql`](../db/audit/a13_undelivered_operational_messages.sql)
+
+```sql
+SELECT operational_message_id, shipment_id, channel, subject, delivery_status, sent_at
+FROM operational_messages
+WHERE delivery_status IN ('FAILED', 'QUEUED')
+ORDER BY operational_message_id;
+```
+
+| operational_message_id | shipment_id | channel | subject | delivery_status | sent_at |
+| --- | --- | --- | --- | --- | --- |
+| OM002 | SHP1013 | EMAIL | Slot confirmation request for SHP1013 | QUEUED | 2026-08-04 09:32 |
+| OM004 | SHP1015 | EMAIL | Reefer slot exception for SHP1015 | FAILED | 2026-08-04 16:25 |
+
+<a id="a14"></a>
+## A14. Every ETA update comes from the driver
+
+**What the solver does:** The snapshot has no warehouse estimate, no operations override and no GPS. A driver's ETA is evidence with a confidence, not the truth: LOW confidence adds 15 minutes before the truck counts as ready, and an override (or the simulated GPS) outranks it.
+
+Query: [`db/audit/a14_eta_sources.sql`](../db/audit/a14_eta_sources.sql)
+
+```sql
+SELECT source_type, confidence_code, count(*) AS updates, count(DISTINCT shipment_id) AS shipments
+FROM eta_updates
+GROUP BY source_type, confidence_code
+ORDER BY source_type, confidence_code;
+```
+
+| source_type | confidence_code | updates | shipments |
+| --- | --- | --- | --- |
+| DRIVER_DECLARED | HIGH | 9 | 9 |
+| DRIVER_DECLARED | LOW | 2 | 2 |
+| DRIVER_DECLARED | MEDIUM | 1 | 1 |

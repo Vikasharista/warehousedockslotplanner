@@ -1,0 +1,19 @@
+# Evals on every change (week 12 and 14: evals run once are a demo; evals on every pull request are a safety net).
+# The driver agent's unit and guardrail tests, the golden message set, the deterministic trace checks, and the stored
+# scenario run replayed through them. The live tests skip here (no planner); scripts/agent-suite.sh and
+# scripts/scenario-run.sh run them against the full stack.
+name: evals
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r agent/requirements-dev.txt -r evals/requirements.txt
+      - run: python -m pytest -q agent/tests evals

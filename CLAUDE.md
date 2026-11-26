@@ -70,3 +70,9 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   from its request. Outcomes and coordinator replies reach the driver on the change feed (`kind` APPROVAL, REPLY).
 - A truck may change its slot by chat at most `max_chat_reschedules` (2) times; dock-api enforces it on hold and
   confirm. Coordinators work approvals, cases and open exceptions on the Driver cases screen.
+- The agent never answers money questions (penalties, detention or waiting charges, payments, claims): they become a
+  `COMMERCIAL_QUERY` case. A driver's "I am here" that GPS puts 60+ minutes away (`conflict_min`) keeps the GPS time and
+  opens a `DATA_CONFLICT` case while the conversation goes on. Phone numbers, vehicle registrations and emails are
+  masked before any text reaches a model, and the message is passed as untrusted data (phase 8).
+- The submission's evidence is generated, not hand-written: `scripts/scenario-run.sh` writes `docs/scenario-run/`
+  (traces scored by `evals/checks.py`), and `evals/test_evals.py` (golden messages, trace checks) runs in CI.

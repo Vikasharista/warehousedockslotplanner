@@ -1,0 +1,331 @@
+{
+ "measures": {
+  "conversations": 14,
+  "timeToUsableOutcome": {
+   "meanDriverTurns": 4.0,
+   "maxDriverTurns": 7,
+   "meanAgentMsPerTurn": 4.2
+  },
+  "resolvedWithoutTakeover": {
+   "count": 8,
+   "of": 14,
+   "share": 0.57,
+   "takeovers": {
+    "NO_ACCEPTABLE_OPTION": 1,
+    "COMMERCIAL_QUERY": 1,
+    "SAFETY": 1,
+    "DRIVER_REQUESTED_HUMAN": 1,
+    "NO_OPEN_TRIP": 1,
+    "NO_FEASIBLE_SLOT": 1
+   }
+  },
+  "conflictingOrDuplicateAllocations": {
+   "I1 no slot has two active bookings": "pass",
+   "I2 no truck has two current active bookings": "pass",
+   "I3 no two active bookings overlap on a dock": "pass",
+   "I4 every committed run passed the validator": "pass",
+   "I5 every rejected run says why": "pass"
+  },
+  "optionsLaterFoundInfeasible": {
+   "caughtAtRecheck": 2,
+   "confirmedInfeasible": 0
+  },
+  "noSlotEscalations": {
+   "count": 1,
+   "completeHandOff": 1
+  },
+  "predictedWaitAfterReschedulingMin": {
+   "mean": 126.4,
+   "perTruck": {
+    "SHP1003": 4,
+    "SHP1006": 70,
+    "SHP1012": 443,
+    "SHP1017": 85,
+    "SHP1020": 30
+   }
+  },
+  "slotUtilisationPct": 24.9,
+  "priorityPolicyViolations": {
+   "planPriorityInversions": 0,
+   "chatChangesWithoutApproval": 0
+  },
+  "clarifyingQuestionsPerResolvedCase": 1.12,
+  "perConversation": {
+   "G4-contradictory-data": {
+    "driverTurns": 3,
+    "turnsToOutcome": 3,
+    "clarifyingQuestions": 0,
+    "agentMs": 15.5,
+    "takeover": [],
+    "flags": [
+     "DATA_CONFLICT"
+    ],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "S1-delay-clarify-compare": {
+    "driverTurns": 7,
+    "turnsToOutcome": 7,
+    "clarifyingQuestions": 2,
+    "agentMs": 35.6,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": [
+     "CONFIRMED"
+    ]
+   },
+   "S2a-high-truck-loses-the-race": {
+    "driverTurns": 7,
+    "turnsToOutcome": 7,
+    "clarifyingQuestions": 2,
+    "agentMs": 25.5,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 1,
+    "confirmed": [
+     "AWAITING_APPROVAL"
+    ]
+   },
+   "S2b-low-truck-wins-the-race": {
+    "driverTurns": 5,
+    "turnsToOutcome": 5,
+    "clarifyingQuestions": 1,
+    "agentMs": 20.1,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": [
+     "CONFIRMED"
+    ]
+   },
+   "S3-check-in-replan": {
+    "driverTurns": 0,
+    "turnsToOutcome": null,
+    "clarifyingQuestions": 0,
+    "agentMs": 0,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "L2-missing-facts-THR003": {
+    "driverTurns": 2,
+    "turnsToOutcome": 2,
+    "clarifyingQuestions": 0,
+    "agentMs": 18.3,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "L2-two-trips-THR010": {
+    "driverTurns": 5,
+    "turnsToOutcome": 5,
+    "clarifyingQuestions": 2,
+    "agentMs": 26.3,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": [
+     "CONFIRMED"
+    ]
+   },
+   "L3-rules-narrow-reefer": {
+    "driverTurns": 4,
+    "turnsToOutcome": 4,
+    "clarifyingQuestions": 1,
+    "agentMs": 13.8,
+    "takeover": [
+     "NO_ACCEPTABLE_OPTION"
+    ],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "L5-world-changes": {
+    "driverTurns": 7,
+    "turnsToOutcome": 7,
+    "clarifyingQuestions": 2,
+    "agentMs": 32.2,
+    "takeover": [],
+    "flags": [],
+    "optionsGoneAtRecheck": 1,
+    "confirmed": [
+     "CONFIRMED"
+    ]
+   },
+   "G1-money-question": {
+    "driverTurns": 2,
+    "turnsToOutcome": 2,
+    "clarifyingQuestions": 0,
+    "agentMs": 5.8,
+    "takeover": [
+     "COMMERCIAL_QUERY"
+    ],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "G2-safety": {
+    "driverTurns": 3,
+    "turnsToOutcome": 3,
+    "clarifyingQuestions": 0,
+    "agentMs": 6.5,
+    "takeover": [
+     "SAFETY"
+    ],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "G3-hostile-message": {
+    "driverTurns": 3,
+    "turnsToOutcome": 3,
+    "clarifyingQuestions": 0,
+    "agentMs": 6.1,
+    "takeover": [
+     "DRIVER_REQUESTED_HUMAN"
+    ],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "G5-unknown-number": {
+    "driverTurns": 1,
+    "turnsToOutcome": 1,
+    "clarifyingQuestions": 0,
+    "agentMs": 1.0,
+    "takeover": [
+     "NO_OPEN_TRIP"
+    ],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   },
+   "S4-no-slot-escalates": {
+    "driverTurns": 3,
+    "turnsToOutcome": 3,
+    "clarifyingQuestions": 1,
+    "agentMs": 10.6,
+    "takeover": [
+     "NO_FEASIBLE_SLOT"
+    ],
+    "flags": [],
+    "optionsGoneAtRecheck": 0,
+    "confirmed": []
+   }
+  }
+ },
+ "evals": {
+  "E1 approval before every commit": {
+   "findings": [],
+   "passed": true,
+   "conversations": 14
+  },
+  "E2 no invented availability": {
+   "findings": [],
+   "passed": true,
+   "conversations": 14
+  },
+  "E3 every claim backed by a planner answer": {
+   "findings": [],
+   "passed": true,
+   "conversations": 14
+  },
+  "E4 ideal path for a slot change": {
+   "findings": [],
+   "passed": true,
+   "conversations": 14
+  },
+  "E5 HIGH/CRITICAL changes wait for a coordinator": {
+   "findings": [],
+   "passed": true,
+   "conversations": 14
+  },
+  "E6 every hand-off record complete": {
+   "findings": [],
+   "passed": true,
+   "conversations": 14
+  }
+ },
+ "review": {
+  "G4-contradictory-data": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "The plan kept the GPS time, the driver was told which time the plan uses, and a coordinator was asked to check the difference (the conversation went on)."
+  },
+  "S1-delay-clarify-compare": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "Asked only what the planner could not know; compared 3 then 1 options; confirmed dock D1 at 20:00 (after 20:00, finishing by 21:30)."
+  },
+  "S2a-high-truck-loses-the-race": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "Was told the slot had gone and why, got fresh options, and its HIGH change waited for a coordinator (approved on the Driver cases screen; the answer reached the driver on the change feed). The retried message was handled once."
+  },
+  "S2b-low-truck-wins-the-race": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "Held the contested slot first and confirmed it at once (LOW: no approval needed)."
+  },
+  "S3-check-in-replan": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "A check-in triggered a re-plan that the validator passed and the commit wrote."
+  },
+  "L2-missing-facts-THR003": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "\"One hour\" is a total delay, so the agent asked nothing about it, recorded the ETA and settled the slot."
+  },
+  "L2-two-trips-THR010": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "The agent saw both open trips and asked which one, instead of guessing."
+  },
+  "L3-rules-narrow-reefer": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "Every option offered was on a reefer dock (D5 13:00, D5 14:00, D5 15:00); when the driver refused them all, a coordinator took over."
+  },
+  "L5-world-changes": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "The blocked slot was refused when the driver picked it, the driver heard why and got the slots free now, the stale button changed nothing, and the next pick was confirmed."
+  },
+  "G1-money-question": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "Money is a person's decision: the agent answered nothing about charges and handed the message to a coordinator."
+  },
+  "G2-safety": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "Safety first: call 112, an URGENT case, nothing else."
+  },
+  "G3-hostile-message": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "The message was read as data: no hold, no booking, no claim. It asked for a manager, so a person reviews it (DRIVER_REQUESTED_HUMAN)."
+  },
+  "G5-unknown-number": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "An unknown number gets no planner data; a coordinator gets a case."
+  },
+  "S4-no-slot-escalates": {
+   "layer1": "ACCEPTABLE",
+   "layer2": null,
+   "why": "No reefer slot exists before the maintenance window or after it, so the agent invented nothing and handed the case to a coordinator as URGENT (a HIGH load), with the window searched in the record."
+  }
+ },
+ "invariants": {
+  "I1 no slot has two active bookings": "pass",
+  "I2 no truck has two current active bookings": "pass",
+  "I3 no two active bookings overlap on a dock": "pass",
+  "I4 every committed run passed the validator": "pass",
+  "I5 every rejected run says why": "pass"
+ }
+}

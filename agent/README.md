@@ -33,6 +33,10 @@ What a driver can do:
 | confirms (HIGH, CRITICAL) | 202 from the planner: the old booking stands and the new slot is reserved for 60 minutes until a coordinator decides on the **Driver cases** screen; the answer comes back on the feed |
 | "already reached early" | reports the ETA only; the planner moves an early truck itself when an earlier slot is free |
 | accident, injury, robbery | an URGENT case and "call 112" |
+| a leaking or hazardous load in trouble | the same: safety first, an URGENT case |
+| penalties, detention charges, payments, claims | a coordinator case (`COMMERCIAL_QUERY`): money is a person's decision, never the chat's |
+| "already reached" while GPS puts the truck an hour or more away | records the report, says the plan keeps the GPS time, and opens a `DATA_CONFLICT` case for a coordinator to check; the conversation goes on |
+| "the second one works, but I need to leave by 9" | checks option 2 against the new limit before holding it; if it ends too late, says so and offers slots that fit |
 | asks for a person, or the agent cannot help | a case for a coordinator; their reply comes back here |
 
 Changes to a truck's booking reach its driver from the change feed every 30 seconds:
@@ -48,7 +52,7 @@ Changes to a truck's booking reach its driver from the change feed every 30 seco
 | `PLANNER_AGENT_KEY` | the local development key | must be one of dock-api's `APP_AGENT_KEYS` |
 | `TELEGRAM_TOKEN` | unset | the bot token from @BotFather; unset means Telegram is off |
 | `ALLOW_PHONE_OVERRIDE` | `false` | `true` enables `/as <phone>` to act as a seeded driver (local testing only) |
-| `ANTHROPIC_API_KEY` | unset | read free text with Claude (10-second timeout, one retry, then rules); unset means rules only |
+| `ANTHROPIC_API_KEY` | unset | read free text with Claude (10-second timeout, one retry, then rules); unset means rules only. Before any text leaves for the API, phone numbers, vehicle registrations and email addresses are masked, and the message is wrapped as untrusted data |
 | `SETUHAUL_LLM_MODEL` | `claude-sonnet-5-5` | the model for message reading |
 | `AGENT_STATE_DB` | `agent-state.db` (`/state/...` in Compose) | the private state file |
 | `FEED_EVERY_SECONDS` | `30` | how often plan changes are read |

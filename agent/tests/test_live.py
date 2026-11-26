@@ -228,5 +228,18 @@ def test_a_plan_change_reaches_the_driver_within_one_poll(planner, store, driver
         coordinator.post(f"/api/slots/{slot}/status", json={"status": "OPEN"})
 
 
+def test_no_free_reefer_slot_hands_over_with_a_complete_case(planner, driver):
+    """The brief's ladder rung 6 (SHP1015, THR005): no safe slot, so a coordinator, never an invented answer."""
+    d = driver(15)
+    bind(d, "SHP1015")
+    d.say("Evening traffic. ETA 6:30. Can the reefer unload tonight?")
+    if "latest time you can finish" in d.last():
+        d.say("no limit")
+    assert "There is no free slot for your truck" in d.last() and "Ref CASE-" in d.last(), d.transcript
+    case = planner.case(d.last().split("Ref ")[1].rstrip("."))
+    assert case["status"] == "OPEN"
+    assert planner.trip("SHP1015").get("hold") is None, "nothing is held for a truck no slot can take"
+
+
 def test_times_are_shown_in_ist():
     assert parse("2026-08-04T06:30:00Z").astimezone(IST).strftime("%H:%M") == "12:00"
