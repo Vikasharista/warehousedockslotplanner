@@ -21,6 +21,8 @@ const (
 	HoldExpiredCode = "HOLD_EXPIRED"
 	// RescheduleLimitCode: the truck already changed its slot by chat as often as allowed (max_chat_reschedules).
 	RescheduleLimitCode = "RESCHEDULE_LIMIT"
+	// NotReschedulableCode: the truck is in the dock or unloading, so its slot can no longer change by chat.
+	NotReschedulableCode = "NOT_RESCHEDULABLE"
 	// OutcomeConfirmed and OutcomeAwaitingApproval say what a confirm did: the hold became the booking, or it waits
 	// for a coordinator (HIGH and CRITICAL loads) with the slot reserved and the old booking kept.
 	OutcomeConfirmed        = "CONFIRMED"
@@ -118,6 +120,9 @@ func (s *Store) Options(ctx context.Context, shipmentID string, limit int) ([]Op
 	if err := s.shipmentOpen(ctx, shipmentID); err != nil {
 		return nil, err
 	}
+	if err := reschedulable(s.GetDB(ctx), shipmentID); err != nil {
+		return nil, err
+	}
 	return s.options(s.GetDB(ctx), shipmentID, "", limit)
 }
 
@@ -139,6 +144,28 @@ func (s *Store) shipmentOpen(ctx context.Context, shipmentID string) error {
 	}
 	if n == 0 {
 		return errors.NewRecordNotFoundError("no open shipment " + shipmentID)
+	}
+	return nil
+}
+
+// atDockSQL is true for a truck that has reached its dock: shipment status IN_DOCK, a dock-in time on its check-in, or
+// a current booking already IN_PROGRESS. The three are checked together because the sources can disagree.
+const atDockSQL = `SELECT s.current_status = 'IN_DOCK'
+	    OR EXISTS (SELECT 1 FROM facility_checkins fc WHERE fc.shipment_id = s.shipment_id
+	               AND fc.dock_in_ts <= setuhaul_now())
+	    OR EXISTS (SELECT 1 FROM appointments a WHERE a.shipment_id = s.shipment_id AND a.is_current = 1
+	               AND a.appointment_status = 'IN_PROGRESS')
+	FROM shipments s WHERE s.shipment_id = ?`
+
+// reschedulable refuses a truck that has reached its dock: its slot can no longer change by chat (options, hold,
+// confirm). A truck at the gate or waiting in the yard can still move, for example when its dock breaks down.
+func reschedulable(db *gorm.DB, shipmentID string) error {
+	var atDock []bool
+	if err := db.Raw(atDockSQL, shipmentID).Scan(&atDock).Error; err != nil {
+		return errors.RepositoryError(err)
+	}
+	if len(atDock) > 0 && atDock[0] {
+		return errors.New(NotReschedulableCode, shipmentID+" is already at the dock: its slot can no longer change")
 	}
 	return nil
 }
@@ -214,6 +241,9 @@ func (s *Store) CreateHold(ctx context.Context, shipmentID, slotID string) (*Hol
 		if err := lockFacility(db, facility); err != nil {
 			return errors.RepositoryError(err)
 		}
+		if err := reschedulable(db, shipmentID); err != nil {
+			return err
+		}
 		var pending []string
 		if err := db.Raw(`SELECT appointment_id FROM appointments WHERE shipment_id = ?
 			AND appointment_status = 'PENDING_CONFIRMATION'`, shipmentID).Scan(&pending).Error; err != nil {
@@ -274,6 +304,9 @@ func (s *Store) ConfirmHold(ctx context.Context, id string) (*Hold, error) {
 	h, err := s.changeHold(ctx, id, func(db *gorm.DB, h *Hold, now time.Time) error {
 		if !now.Before(h.ExpiresAt) {
 			return errors.New(HoldExpiredCode, fmt.Sprintf("hold %s expired at %s", id, h.ExpiresAt.Format(time.RFC3339)))
+		}
+		if err := reschedulable(db, h.ShipmentID); err != nil {
+			return err
 		}
 		if h.Approval != nil && h.Approval.Status == RequestPending {
 			outcome = OutcomeAwaitingApproval

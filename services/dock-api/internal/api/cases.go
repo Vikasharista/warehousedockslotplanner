@@ -141,7 +141,8 @@ func (h *handlers) openCase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, c)
+	// 200 when the hand-over was added to the thread's open case, 201 for a new case.
+	writeJSON(w, map[bool]int{true: http.StatusOK, false: http.StatusCreated}[c.Reused], c)
 }
 
 func (h *handlers) decide(approve bool) func(http.ResponseWriter, *http.Request, string) {
