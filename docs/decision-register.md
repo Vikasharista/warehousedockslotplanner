@@ -565,9 +565,9 @@ list, money, safety, a hostile message, contradictory data, an unknown number).
 
 **Results.** First, the brief's own case, ten drivers on one slot (`evals/ten_drivers.py`, all in
 [integrity-proof.md](integrity-proof.md)):
-- 20 rounds of ten simultaneous hold requests, 199 in total;
+- 20 rounds of ten simultaneous hold requests, 200 in total;
 - exactly one winner every round;
-- 179 refused with a reason;
+- 180 refused with a reason;
 - 0 double bookings: I1 to I3 held after every round.
 
 Then the race harness:
@@ -576,7 +576,7 @@ Then the race harness:
 | --- | --- | --- | --- |
 | 60 s, 6 drivers, seed 1 | 271 / 146 / 125 | 29 / 25 | All 7 pass |
 | 60 s, 8 drivers, bursts of 6, seed 2 | 368 / 217 / 151 | 25 / 29 | All 7 pass |
-| Phase 8: 60 s, 8 drivers, bursts of 6, seed 3 | 40,659 hold requests: 45 won, 31,471 refused by the chat limit, 9,141 because the truck already held a slot / 27 / 18 | 51 / 11 | All 8 pass |
+| Phase 8: 60 s, 8 drivers, bursts of 6, seed 3 | 37,001 hold requests: 55 won, 27,239 refused by the chat limit, 9,700 because the truck already held a slot / 29 / 26 | 56 / 10 | All 8 pass |
 
 The first full run **failed I3**. A hold beside a 65-minute unload overlapped the next slot. The fix made every check
 count a booking's whole unload, and each regression test fails on the old code.

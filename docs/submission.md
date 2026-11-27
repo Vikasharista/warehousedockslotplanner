@@ -62,14 +62,14 @@ traffic. ETA 6:30. Can the reefer unload tonight?"
 
 **Result (requests sent, bookings made, double bookings):**
 - **Ten drivers, one slot:** 20 rounds of ten simultaneous hold requests for the same free slot.
-  - 199 requests sent; 20 holds won, exactly one per round, never two.
-  - 179 refused with a reason: 164 "slot taken", 15 "truck already holds a slot".
-  - The last winners confirmed: 1 booking at once, and 2 HIGH changes routed to a coordinator as policy says.
+  - 200 requests sent; 20 holds won, exactly one per round, never two.
+  - 180 refused with a reason: 165 "slot taken", 15 "truck already holds a slot".
+  - The last three winners confirmed: 3 bookings made.
   - **0 double bookings.**
 - **Race harness:** 60 seconds of 8 drivers, same-slot bursts, the solver re-planning and a coordinator blocking
   slots.
-  - 40,659 hold requests: 45 holds won, 27 confirms, 6 approvals.
-  - 51 plans committed; 11 rejected with a reason (stale, or a slot blocked mid-solve).
+  - 37,001 hold requests: 55 holds won, 29 confirms, 8 approvals.
+  - 56 plans committed; 10 rejected with a reason (stale, or a slot blocked mid-solve).
   - All 8 invariants pass, so **0 double bookings**.
 
 **6. Client readout (link):** [docs/client-readout.md](client-readout.md), one page covering policy, limits and risks.

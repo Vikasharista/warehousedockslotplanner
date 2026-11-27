@@ -4,7 +4,7 @@
   "timeToUsableOutcome": {
    "meanDriverTurns": 4.0,
    "maxDriverTurns": 7,
-   "meanAgentMsPerTurn": 4.2
+   "meanAgentMsPerTurn": 4.6
   },
   "resolvedWithoutTakeover": {
    "count": 8,
@@ -55,7 +55,7 @@
     "driverTurns": 3,
     "turnsToOutcome": 3,
     "clarifyingQuestions": 0,
-    "agentMs": 15.5,
+    "agentMs": 16.4,
     "takeover": [],
     "flags": [
      "DATA_CONFLICT"
@@ -67,7 +67,7 @@
     "driverTurns": 7,
     "turnsToOutcome": 7,
     "clarifyingQuestions": 2,
-    "agentMs": 35.6,
+    "agentMs": 38.1,
     "takeover": [],
     "flags": [],
     "optionsGoneAtRecheck": 0,
@@ -79,7 +79,7 @@
     "driverTurns": 7,
     "turnsToOutcome": 7,
     "clarifyingQuestions": 2,
-    "agentMs": 25.5,
+    "agentMs": 34.3,
     "takeover": [],
     "flags": [],
     "optionsGoneAtRecheck": 1,
@@ -91,7 +91,7 @@
     "driverTurns": 5,
     "turnsToOutcome": 5,
     "clarifyingQuestions": 1,
-    "agentMs": 20.1,
+    "agentMs": 21.4,
     "takeover": [],
     "flags": [],
     "optionsGoneAtRecheck": 0,
@@ -113,7 +113,7 @@
     "driverTurns": 2,
     "turnsToOutcome": 2,
     "clarifyingQuestions": 0,
-    "agentMs": 18.3,
+    "agentMs": 14.4,
     "takeover": [],
     "flags": [],
     "optionsGoneAtRecheck": 0,
@@ -123,7 +123,7 @@
     "driverTurns": 5,
     "turnsToOutcome": 5,
     "clarifyingQuestions": 2,
-    "agentMs": 26.3,
+    "agentMs": 29.3,
     "takeover": [],
     "flags": [],
     "optionsGoneAtRecheck": 0,
@@ -135,7 +135,7 @@
     "driverTurns": 4,
     "turnsToOutcome": 4,
     "clarifyingQuestions": 1,
-    "agentMs": 13.8,
+    "agentMs": 15.2,
     "takeover": [
      "NO_ACCEPTABLE_OPTION"
     ],
@@ -147,7 +147,7 @@
     "driverTurns": 7,
     "turnsToOutcome": 7,
     "clarifyingQuestions": 2,
-    "agentMs": 32.2,
+    "agentMs": 34.3,
     "takeover": [],
     "flags": [],
     "optionsGoneAtRecheck": 1,
@@ -159,7 +159,7 @@
     "driverTurns": 2,
     "turnsToOutcome": 2,
     "clarifyingQuestions": 0,
-    "agentMs": 5.8,
+    "agentMs": 6.1,
     "takeover": [
      "COMMERCIAL_QUERY"
     ],
@@ -171,7 +171,7 @@
     "driverTurns": 3,
     "turnsToOutcome": 3,
     "clarifyingQuestions": 0,
-    "agentMs": 6.5,
+    "agentMs": 8.0,
     "takeover": [
      "SAFETY"
     ],
@@ -183,7 +183,7 @@
     "driverTurns": 3,
     "turnsToOutcome": 3,
     "clarifyingQuestions": 0,
-    "agentMs": 6.1,
+    "agentMs": 6.6,
     "takeover": [
      "DRIVER_REQUESTED_HUMAN"
     ],
@@ -195,7 +195,7 @@
     "driverTurns": 1,
     "turnsToOutcome": 1,
     "clarifyingQuestions": 0,
-    "agentMs": 1.0,
+    "agentMs": 1.3,
     "takeover": [
      "NO_OPEN_TRIP"
     ],
@@ -207,7 +207,7 @@
     "driverTurns": 3,
     "turnsToOutcome": 3,
     "clarifyingQuestions": 1,
-    "agentMs": 10.6,
+    "agentMs": 11.8,
     "takeover": [
      "NO_FEASIBLE_SLOT"
     ],

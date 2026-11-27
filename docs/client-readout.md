@@ -31,7 +31,7 @@ by more than 30 minutes, a truck checks in, a new request arrives, or every 15 m
 ## Evidence
 
 - **0 double bookings.** Ten drivers asked for the same slot at the same instant, 20 times; each time exactly one got
-  it. A 60-second stress test of 40,000+ requests, with re-planning and slot blocking throughout, broke nothing.
+  it. A 60-second stress test of 37,000+ requests, with re-planning and slot blocking throughout, broke nothing.
 - **The scripted day:** 14 of 14 conversations reached an acceptable result. No invented slots, no booking without a
   yes, no HIGH load moved without a coordinator.
 - **Better than first come, first served.** On a busy 70-truck day at noon, the planner places 47 of 66 trucks with

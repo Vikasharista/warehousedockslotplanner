@@ -3,35 +3,34 @@
   "drivers": 8,
   "burstSize": 6,
   "actions": {
-    "approve 200": 6,
+    "approve 200": 8,
     "block 200": 20,
     "burst 6 drivers, 0 winner(s)": 30,
     "burst 6 drivers, 1 winner(s)": 1,
-    "confirm 200": 14,
-    "confirm 202": 13,
+    "confirm 200": 12,
+    "confirm 202": 17,
     "final replan 200 COMMITTED": 1,
-    "hold 201": 45,
-    "hold 409 HOLD_CONFLICT": 9141,
-    "hold 409 RESCHEDULE_LIMIT": 31471,
-    "hold 409 SLOT_UNAVAILABLE": 2,
-    "options none": 3250,
-    "reject 200": 7,
-    "release 200": 18,
+    "hold 201": 55,
+    "hold 409 HOLD_CONFLICT": 9700,
+    "hold 409 RESCHEDULE_LIMIT": 27239,
+    "hold 409 SLOT_UNAVAILABLE": 7,
+    "options none": 2929,
+    "reject 200": 9,
+    "release 200": 26,
     "reopen 200": 20,
-    "replan 200 COMMITTED": 2,
-    "replan 200 REJECTED": 1
+    "replan 200 COMMITTED": 3
   },
   "runs": {
-    "COMMITTED": 51,
-    "REJECTED": 11
+    "COMMITTED": 56,
+    "REJECTED": 10
   },
   "rejectedBecause": {
-    "STALE": 6,
-    "INVALID: V6": 5
+    "STALE": 7,
+    "INVALID: V6": 3
   },
   "bursts": [
     {
-      "slot": "SLOT-JAI-021",
+      "slot": "SLOT-JAI-049",
       "drivers": 6,
       "winners": 1,
       "outcomes": [
@@ -40,37 +39,11 @@
         "409 HOLD_CONFLICT",
         "409 HOLD_CONFLICT",
         "409 HOLD_CONFLICT",
-        "409 SLOT_UNAVAILABLE"
+        "409 HOLD_CONFLICT"
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-051",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -83,20 +56,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-006",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -109,46 +69,20 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-050",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
         "409 HOLD_CONFLICT",
         "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
+        "409 HOLD_CONFLICT",
         "409 HOLD_CONFLICT",
         "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
         "409 RESCHEDULE_LIMIT"
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -161,33 +95,20 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-050",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
         "409 HOLD_CONFLICT",
         "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
+        "409 HOLD_CONFLICT",
         "409 RESCHEDULE_LIMIT",
         "409 RESCHEDULE_LIMIT",
         "409 RESCHEDULE_LIMIT"
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-050",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -200,20 +121,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-050",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -226,46 +134,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-050",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -278,33 +147,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-050",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -317,7 +160,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -330,7 +173,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -343,7 +186,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -356,7 +199,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -369,46 +212,7 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
-      "drivers": 6,
-      "winners": 0,
-      "outcomes": [
-        "409 HOLD_CONFLICT",
-        "409 HOLD_CONFLICT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT",
-        "409 RESCHEDULE_LIMIT"
-      ]
-    },
-    {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
@@ -421,11 +225,206 @@
       ]
     },
     {
-      "slot": "SLOT-JAI-048",
+      "slot": "SLOT-JAI-020",
       "drivers": 6,
       "winners": 0,
       "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
         "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT",
+        "409 RESCHEDULE_LIMIT"
+      ]
+    },
+    {
+      "slot": "SLOT-JAI-020",
+      "drivers": 6,
+      "winners": 0,
+      "outcomes": [
+        "409 HOLD_CONFLICT",
         "409 RESCHEDULE_LIMIT",
         "409 RESCHEDULE_LIMIT",
         "409 RESCHEDULE_LIMIT",

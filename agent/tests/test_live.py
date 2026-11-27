@@ -229,7 +229,7 @@ def test_a_plan_change_reaches_the_driver_within_one_poll(planner, store, driver
         coordinator.post(f"/api/slots/{slot}/status", json={"status": "OPEN"})
 
 
-def test_no_free_reefer_slot_hands_over_with_a_complete_case(planner, driver):
+def test_no_free_reefer_slot_hands_over_with_a_complete_case(planner, driver, coordinator):
     """The brief's ladder rung 6 (SHP1015, THR005): no safe slot, so a coordinator, never an invented answer."""
     d = driver(15)
     bind(d, "SHP1015")
@@ -237,9 +237,13 @@ def test_no_free_reefer_slot_hands_over_with_a_complete_case(planner, driver):
     if "latest time you can finish" in d.last():
         d.say("no limit")
     assert "There is no free slot for your truck" in d.last() and "Ref CASE-" in d.last(), d.transcript
-    case = planner.case(d.last().split("Ref ")[1].rstrip("."))
-    assert case["status"] == "OPEN"
-    assert planner.trip("SHP1015").get("hold") is None, "nothing is held for a truck no slot can take"
+    case_id = d.last().split("Ref ")[1].rstrip(".")
+    try:
+        assert planner.case(case_id)["status"] == "OPEN"
+        assert planner.trip("SHP1015").get("hold") is None, "nothing is held for a truck no slot can take"
+    finally:
+        # SHP1015's thread keeps one open case; resolve it so other tests on this truck start from a closed case.
+        coordinator.post(f"/api/cases/{case_id}/resolve", json={"reply": "Unloading moved to tomorrow 06:00."})
 
 
 def test_times_are_shown_in_ist():

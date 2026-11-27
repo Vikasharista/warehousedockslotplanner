@@ -1,14 +1,14 @@
 {
  "drivers": 10,
  "rounds": 20,
- "requestsSent": 199,
+ "requestsSent": 200,
  "holdsWon": 20,
- "bookingsConfirmed": 1,
- "refused": 179,
+ "bookingsConfirmed": 3,
+ "refused": 180,
  "roundsWithExactlyOneWinner": 20,
  "roundsWithMoreThanOneWinner": 0,
  "refusalCodes": {
-  "SLOT_UNAVAILABLE": 164,
+  "SLOT_UNAVAILABLE": 165,
   "HOLD_CONFLICT": 15
  },
  "doubleBookings": 0,
@@ -23,13 +23,13 @@
    "slot": "SLOT-JAI-027",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP1007",
+   "winner": "SHP1006",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 41.0,
+   "slowestMs": 34.4,
    "invariants": true
   },
   {
@@ -37,32 +37,18 @@
    "slot": "SLOT-JAI-055",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP1007",
+   "winner": "SHP1017",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 27.4,
+   "slowestMs": 28.9,
    "invariants": true
   },
   {
    "round": 3,
    "slot": "SLOT-JAI-028",
-   "drivers": 10,
-   "winners": 1,
-   "winner": "SHP1013",
-   "winnerOutcome": "released",
-   "refusals": {
-    "SLOT_UNAVAILABLE": 8,
-    "HOLD_CONFLICT": 1
-   },
-   "slowestMs": 28.8,
-   "invariants": true
-  },
-  {
-   "round": 4,
-   "slot": "SLOT-JAI-056",
    "drivers": 10,
    "winners": 1,
    "winner": "SHP-G0001",
@@ -71,7 +57,21 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 22.7,
+   "slowestMs": 28.9,
+   "invariants": true
+  },
+  {
+   "round": 4,
+   "slot": "SLOT-JAI-056",
+   "drivers": 10,
+   "winners": 1,
+   "winner": "SHP1006",
+   "winnerOutcome": "released",
+   "refusals": {
+    "SLOT_UNAVAILABLE": 8,
+    "HOLD_CONFLICT": 1
+   },
+   "slowestMs": 26.6,
    "invariants": true
   },
   {
@@ -85,7 +85,7 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 27.2,
+   "slowestMs": 29.0,
    "invariants": true
   },
   {
@@ -93,13 +93,13 @@
    "slot": "SLOT-JAI-054",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP-G0001",
+   "winner": "SHP1017",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 28.0,
+   "slowestMs": 28.3,
    "invariants": true
   },
   {
@@ -113,7 +113,7 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 26.5,
+   "slowestMs": 25.5,
    "invariants": true
   },
   {
@@ -127,7 +127,7 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 25.8,
+   "slowestMs": 28.5,
    "invariants": true
   },
   {
@@ -141,7 +141,7 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 26.6,
+   "slowestMs": 28.8,
    "invariants": true
   },
   {
@@ -155,7 +155,7 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 20.3,
+   "slowestMs": 25.4,
    "invariants": true
   },
   {
@@ -169,7 +169,7 @@
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 27.2,
+   "slowestMs": 28.9,
    "invariants": true
   },
   {
@@ -177,13 +177,13 @@
    "slot": "SLOT-JAI-053",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP-G0001",
+   "winner": "SHP1009",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 28.3,
+   "slowestMs": 29.6,
    "invariants": true
   },
   {
@@ -196,7 +196,7 @@
    "refusals": {
     "SLOT_UNAVAILABLE": 9
    },
-   "slowestMs": 30.3,
+   "slowestMs": 32.4,
    "invariants": true
   },
   {
@@ -204,12 +204,12 @@
    "slot": "SLOT-JAI-014",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP-G0002",
+   "winner": "SHP-G0001",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 9
    },
-   "slowestMs": 26.3,
+   "slowestMs": 32.8,
    "invariants": true
   },
   {
@@ -217,12 +217,12 @@
    "slot": "SLOT-JAI-042",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP-G0002",
+   "winner": "SHP1012",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 9
    },
-   "slowestMs": 29.7,
+   "slowestMs": 29.3,
    "invariants": true
   },
   {
@@ -230,13 +230,13 @@
    "slot": "SLOT-JAI-022",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP1006",
+   "winner": "SHP1009",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 27.0,
+   "slowestMs": 30.1,
    "invariants": true
   },
   {
@@ -244,13 +244,13 @@
    "slot": "SLOT-JAI-050",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP1017",
+   "winner": "SHP1006",
    "winnerOutcome": "released",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 23.2,
+   "slowestMs": 28.3,
    "invariants": true
   },
   {
@@ -258,12 +258,12 @@
    "slot": "SLOT-JAI-040",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP1006",
-   "winnerOutcome": "AWAITING_APPROVAL (withdrawn)",
+   "winner": "SHP1007",
+   "winnerOutcome": "CONFIRMED",
    "refusals": {
     "SLOT_UNAVAILABLE": 9
    },
-   "slowestMs": 25.9,
+   "slowestMs": 28.3,
    "invariants": true
   },
   {
@@ -271,26 +271,26 @@
    "slot": "SLOT-JAI-049",
    "drivers": 10,
    "winners": 1,
-   "winner": "SHP-G0006",
+   "winner": "SHP-G0009",
    "winnerOutcome": "CONFIRMED",
    "refusals": {
     "SLOT_UNAVAILABLE": 8,
     "HOLD_CONFLICT": 1
    },
-   "slowestMs": 29.0,
+   "slowestMs": 31.2,
    "invariants": true
   },
   {
    "round": 20,
    "slot": "SLOT-JAI-009",
-   "drivers": 9,
+   "drivers": 10,
    "winners": 1,
-   "winner": "SHP-G0005",
-   "winnerOutcome": "AWAITING_APPROVAL (withdrawn)",
+   "winner": "SHP-G0006",
+   "winnerOutcome": "CONFIRMED",
    "refusals": {
-    "SLOT_UNAVAILABLE": 8
+    "SLOT_UNAVAILABLE": 9
    },
-   "slowestMs": 26.8,
+   "slowestMs": 33.7,
    "invariants": true
   }
  ],

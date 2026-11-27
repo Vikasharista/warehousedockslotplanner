@@ -22,11 +22,11 @@ them can use any one slot. The full 70-truck day leaves no slot free for even tw
 
 | Result | Value |
 | --- | --- |
-| Rounds, drivers per round | 20, 10 (the last round had 9, because a truck that had confirmed sat it out) |
-| Requests sent | **199**, all within about 41 ms per round |
+| Rounds, drivers per round | 20, 10 |
+| Requests sent | **200**, each round answered within about 35 ms |
 | Holds won | **20**: exactly one winner in every round, never two |
-| Refused | **179**: `SLOT_UNAVAILABLE` 164 (someone else holds it), `HOLD_CONFLICT` 15 (that truck already holds another slot) |
-| Bookings made at the end | The last three winners confirmed: 1 booking at once (NORMAL); 2 HIGH changes went to coordinator approval, as policy says, and were withdrawn |
+| Refused | **180**: `SLOT_UNAVAILABLE` 165 (someone else holds it), `HOLD_CONFLICT` 15 (that truck already holds another slot) |
+| Bookings made at the end | The last three winners confirmed: **3 bookings** made at once (LOW or NORMAL trucks; a HIGH or CRITICAL winner would have gone to coordinator approval) |
 | Double bookings | **0**: invariants I1 (no slot with two active bookings), I2 (no truck with two current bookings) and I3 (no two unloads overlapping on a dock) passed after every round |
 
 Raw results: [results/phase8/ten-drivers.json](results/phase8/ten-drivers.json).
@@ -45,7 +45,7 @@ Then it checks eight invariants in the database.
 | --- | --- | --- | --- |
 | Phase 6, seed 1 (6 drivers) | 271 holds, 146 confirms, 125 releases | Solver: 29 runs committed, 25 rejected (12 stale, 13 slot blocked mid-solve) | all 7 pass |
 | Phase 6, seed 2 (8 drivers, bursts of 6) | 368 holds, 217 confirms, 151 releases | Solver: 25 runs committed, 29 rejected (16 stale, 13 slot blocked mid-solve) | all 7 pass |
-| **Phase 8**, seed 3 (8 drivers, bursts of 6) | **40,659 hold requests** | 45 holds won, 27 confirms, 6 approvals and 7 rejections by the coordinator, 18 releases. 31,471 refused by the two-change chat limit (phase 7) and 9,141 because the truck already held a slot: drivers who exhaust their changes keep hammering, and the planner keeps saying no. Solver: 51 runs committed, 11 rejected, each with its reason (6 stale, 5 failed validator V6 after a coordinator blocked a slot mid-solve) | **all 8 pass** |
+| **Phase 8**, seed 3 (8 drivers, bursts of 6) | **37,001 hold requests** | 55 holds won, 29 confirms (17 of them HIGH or CRITICAL changes sent for approval), 8 approvals and 9 rejections by the coordinator, 26 releases. 27,239 refused by the two-change chat limit (phase 7) and 9,700 because the truck already held a slot: drivers who exhaust their changes keep hammering, and the planner keeps saying no. Solver: 56 runs committed, 10 rejected, each with its reason (7 stale, 3 failed validator V6 after a coordinator blocked a slot mid-solve) | **all 8 pass** |
 
 The phase 8 run shows a property the phase 6 runs could not: once the chat limit applies, sustained hammering still
 breaks nothing. The ten-drivers test above shows the pure contention case cleanly.
