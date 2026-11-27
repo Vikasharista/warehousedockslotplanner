@@ -64,8 +64,15 @@ func TestAThreadKeepsOneOpenCase(t *testing.T) {
 
 	first := handOver("NO_FEASIBLE_SLOT", "NORMAL", "no slot after 15:00")
 	assert.False(t, first.Reused)
+	// The agent moved the conversation on while the case stayed open; the next hand-over escalates it again.
+	_, err = s.UpdateThread(ctx, th.ThreadID, ThreadUpdate{Status: "RESOLVED"})
+	require.NoError(t, err)
 	safety := handOver("SAFETY", "URGENT", "accident, helper hurt")
 	assert.True(t, safety.Reused)
+	escalated, err := getThread(s.GetDB(ctx), th.ThreadID)
+	require.NoError(t, err)
+	assert.Equal(t, "ESCALATED", escalated.Status)
+	assert.Nil(t, escalated.ClosedAt)
 	assert.Equal(t, first.CaseID, safety.CaseID)
 	assert.Equal(t, "URGENT", safety.Urgency)
 	assert.Equal(t, "SAFETY", safety.ReasonCode)

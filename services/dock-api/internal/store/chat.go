@@ -611,6 +611,12 @@ func addToOpenCase(db *gorm.DB, in NewCase) (*Case, error) {
 		Error; err != nil {
 		return nil, errors.RepositoryError(err)
 	}
+	// As for a new case: the agent may have moved the thread on (RESOLVED, WAITING_FOR_DRIVER) while the case stayed
+	// open, and the hand-over puts the conversation back with a coordinator.
+	if err := db.Exec(`UPDATE chat_threads SET thread_status = 'ESCALATED', closed_at = NULL WHERE thread_id = ?`,
+		in.ThreadID).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
 	if in.ExceptionID != "" {
 		if err := db.Exec(`UPDATE driver_exceptions SET exception_status = 'ESCALATED' WHERE exception_id = ?
 			AND exception_status <> 'DUPLICATE'`, in.ExceptionID).Error; err != nil {
