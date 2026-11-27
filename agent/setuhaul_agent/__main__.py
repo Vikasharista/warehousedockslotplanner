@@ -1,9 +1,9 @@
 """Run the driver agent: python -m setuhaul_agent
 
 Settings come from the environment (see agent/README.md): PLANNER_URL, PLANNER_AGENT_KEY, AGENT_STATE_DB,
-TELEGRAM_TOKEN (Telegram), WHATSAPP_* (WhatsApp, optional), FEED_EVERY_SECONDS, ALLOW_PHONE_OVERRIDE, and
-ANTHROPIC_API_KEY to read free text with Claude (rules otherwise). With neither channel configured the agent only
-logs that it has nothing to do.
+TELEGRAM_TOKEN and TELEGRAM_WORKERS (Telegram), WHATSAPP_* (WhatsApp, optional), FEED_EVERY_SECONDS,
+ALLOW_PHONE_OVERRIDE, and ANTHROPIC_API_KEY to read free text with Claude (rules otherwise). With neither channel
+configured the agent only logs that it has nothing to do.
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def main() -> None:
     if cfg.telegram_token:
         from .channels.telegram import BotApi, TelegramBot
 
-        bot = TelegramBot(BotApi(cfg.telegram_token), agent, cfg.allow_phone_override)
+        bot = TelegramBot(BotApi(cfg.telegram_token), agent, cfg.allow_phone_override, workers=cfg.telegram_workers)
         senders["TELEGRAM"] = bot.deliver
         threads.append(threading.Thread(target=bot.run, name="telegram", daemon=True))
     if cfg.whatsapp:

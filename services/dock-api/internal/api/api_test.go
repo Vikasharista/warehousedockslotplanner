@@ -220,6 +220,7 @@ func TestErrorsMapToStatusesAndHideInternals(t *testing.T) {
 		"taken":       {errors.New(store.SlotUnavailableCode, "slot S1 is taken"), 409},
 		"conflict":    {errors.New(store.HoldConflictCode, "hold is CONFIRMED"), 409},
 		"expired":     {errors.New(store.HoldExpiredCode, "expired"), 409},
+		"in dock":     {errors.New(store.NotReschedulableCode, "already at the dock"), 409},
 		"unmapped":    {errors.New("SOMETHING_ELSE", "x"), 500},
 		"internal":    {stderrors.New("pq: password authentication failed"), 500},
 	}

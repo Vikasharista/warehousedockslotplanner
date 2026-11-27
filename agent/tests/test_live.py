@@ -8,6 +8,7 @@ import pytest
 from setuhaul_agent import notices
 from setuhaul_agent.agent import SLOT_BUTTON
 from setuhaul_agent.channels.sim import SimDriver
+from setuhaul_agent.planner import PlannerError
 from setuhaul_agent.timeutil import IST, hhmm, parse
 
 from .conftest import phone
@@ -230,3 +231,27 @@ def test_a_plan_change_reaches_the_driver_within_one_poll(planner, store, driver
 
 def test_times_are_shown_in_ist():
     assert parse("2026-08-04T06:30:00Z").astimezone(IST).strftime("%H:%M") == "12:00"
+
+
+def test_a_truck_in_its_dock_gets_its_status_not_slot_options(planner, driver):
+    trip = planner.trip("SHP1002")
+    assert trip["status"] == "IN_DOCK" and trip["canReschedule"] is False
+    d = driver(2)
+    bind(d, "SHP1002")
+    d.say("can I get another slot?")
+    assert "already at the dock" in d.last(), d.transcript
+    with pytest.raises(PlannerError) as refused:
+        planner.options("SHP1002")
+    assert refused.value.code == "NOT_RESCHEDULABLE"
+
+
+def test_a_safety_message_on_an_open_case_raises_that_case(planner, driver):
+    d = driver(15)
+    bind(d, "SHP1015")
+    d.say("please let me talk to a person")
+    first = d.last().split("Ref ")[1].rstrip(".")
+    d.say("accident, my helper is hurt")
+    assert "call 112" in d.last()
+    assert d.last().split("Ref ")[1].rstrip(".") == first, "the same case, not a second one"
+    case = planner.case(first)
+    assert case["urgency"] == "URGENT" and case["reasonCode"] == "SAFETY"

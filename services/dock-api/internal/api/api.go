@@ -84,6 +84,7 @@ var statusByCode = map[string]int{
 	store.HoldConflictCode:          http.StatusConflict,
 	store.HoldExpiredCode:           http.StatusConflict,
 	store.RescheduleLimitCode:       http.StatusConflict,
+	store.NotReschedulableCode:      http.StatusConflict,
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
