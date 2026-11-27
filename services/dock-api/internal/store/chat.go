@@ -470,6 +470,8 @@ type Case struct {
 	ResolvedAt    *time.Time `json:"resolvedAt,omitempty"`
 	ResolvedBy    *string    `json:"resolvedBy,omitempty"`
 	ReplyText     *string    `json:"replyText,omitempty"`
+	// Reused is true when OpenCase added to the thread's open case instead of opening a new one.
+	Reused bool `json:"reused,omitempty" gorm:"-"`
 }
 
 const caseSQL = `
@@ -541,6 +543,13 @@ func (s *Store) OpenCase(ctx context.Context, in NewCase) (*Case, error) {
 				return errors.NewBadRequestError("exception " + in.ExceptionID + " is not about " + in.ShipmentID)
 			}
 		}
+		if in.ThreadID != "" {
+			reused, err := addToOpenCase(db, in)
+			if err != nil || reused != nil {
+				out = reused
+				return err
+			}
+		}
 		opt := func(v string) interface{} {
 			if v == "" {
 				return nil
@@ -572,6 +581,64 @@ func (s *Store) OpenCase(ctx context.Context, in NewCase) (*Case, error) {
 		return err
 	})
 	return out, err
+}
+
+// addToOpenCase keeps one open case per conversation: when the thread already has an unresolved case, the new hand-over
+// is added to it (its summary appended, its urgency and reason raised when the new one is more urgent, for example a
+// safety message on a case about a missing slot) and that case is returned. Returns nil when the thread has no open
+// case. A per-thread advisory lock stops two hand-overs on the same thread from both opening a case.
+func addToOpenCase(db *gorm.DB, in NewCase) (*Case, error) {
+	if err := db.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", "setuhaul.cases:"+in.ThreadID).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	var open []struct{ CaseID, ReasonCode, Urgency string }
+	if err := db.Raw(`SELECT case_id, reason_code, urgency FROM coordinator_cases
+		WHERE thread_id = ? AND case_status <> 'RESOLVED' ORDER BY created_at LIMIT 1 FOR UPDATE`, in.ThreadID).
+		Scan(&open).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	if len(open) == 0 {
+		return nil, nil
+	}
+	c := open[0]
+	reason, urgency := c.ReasonCode, c.Urgency
+	if urgencyRank[in.Urgency] > urgencyRank[c.Urgency] {
+		reason, urgency = in.ReasonCode, in.Urgency
+	}
+	if err := db.Exec(`UPDATE coordinator_cases SET reason_code = ?, urgency = ?,
+			summary = left(summary || E'\n' || ?, 1000), exception_id = COALESCE(exception_id, ?)
+		WHERE case_id = ?`, reason, urgency, in.ReasonCode+": "+in.Summary, nullIfEmpty(in.ExceptionID), c.CaseID).
+		Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	// As for a new case: the agent may have moved the thread on (RESOLVED, WAITING_FOR_DRIVER) while the case stayed
+	// open, and the hand-over puts the conversation back with a coordinator.
+	if err := db.Exec(`UPDATE chat_threads SET thread_status = 'ESCALATED', closed_at = NULL WHERE thread_id = ?`,
+		in.ThreadID).Error; err != nil {
+		return nil, errors.RepositoryError(err)
+	}
+	if in.ExceptionID != "" {
+		if err := db.Exec(`UPDATE driver_exceptions SET exception_status = 'ESCALATED' WHERE exception_id = ?
+			AND exception_status <> 'DUPLICATE'`, in.ExceptionID).Error; err != nil {
+			return nil, errors.RepositoryError(err)
+		}
+	}
+	out, err := getCase(db, c.CaseID)
+	if err != nil {
+		return nil, err
+	}
+	out.Reused = true
+	return out, nil
+}
+
+// urgencyRank orders case urgencies: a later hand-over can raise a case's urgency but never lower it.
+var urgencyRank = map[string]int{"LOW": 1, "NORMAL": 2, "URGENT": 3}
+
+func nullIfEmpty(v string) interface{} {
+	if v == "" {
+		return nil
+	}
+	return v
 }
 
 // OpenCases lists a facility's unresolved cases and those with no facility (unknown numbers), most urgent and oldest

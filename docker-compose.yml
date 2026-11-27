@@ -114,6 +114,8 @@ services:
       PLANNER_URL: http://api:8082
       PLANNER_AGENT_KEY: ${SETUHAUL_AGENT_KEY:-local-agent-key-for-development-only}
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      # Telegram updates handled at once (one driver at a time each); 0 handles them on the polling thread.
+      TELEGRAM_WORKERS: ${TELEGRAM_WORKERS:-8}
       # Local testing only: lets you act as a seeded driver with /as +91-9000010009 (your own number is not seeded).
       ALLOW_PHONE_OVERRIDE: ${ALLOW_PHONE_OVERRIDE:-false}
       # Optional: read free text with Claude; rules otherwise.

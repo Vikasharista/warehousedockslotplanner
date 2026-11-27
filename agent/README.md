@@ -32,12 +32,13 @@ What a driver can do:
 | confirms (LOW, NORMAL) | the booking changes at once |
 | confirms (HIGH, CRITICAL) | 202 from the planner: the old booking stands and the new slot is reserved for 60 minutes until a coordinator decides on the **Driver cases** screen; the answer comes back on the feed |
 | "already reached early" | reports the ETA only; the planner moves an early truck itself when an earlier slot is free |
+| asks for a slot once the truck is in its dock | the trip status: the slot can no longer change by chat (the planner's `canReschedule`) |
 | accident, injury, robbery | an URGENT case and "call 112" |
 | a leaking or hazardous load in trouble | the same: safety first, an URGENT case |
 | penalties, detention charges, payments, claims | a coordinator case (`COMMERCIAL_QUERY`): money is a person's decision, never the chat's |
 | "already reached" while GPS puts the truck an hour or more away | records the report, says the plan keeps the GPS time, and opens a `DATA_CONFLICT` case for a coordinator to check; the conversation goes on |
 | "the second one works, but I need to leave by 9" | checks option 2 against the new limit before holding it; if it ends too late, says so and offers slots that fit |
-| asks for a person, or the agent cannot help | a case for a coordinator; their reply comes back here |
+| asks for a person, or the agent cannot help | a case for a coordinator; their reply comes back here. A conversation keeps one open case: a later hand-over (a safety message, say) is added to it and raises its urgency |
 
 Changes to a truck's booking reach its driver from the change feed every 30 seconds:
 - the solver moving or releasing a booking;
@@ -51,6 +52,7 @@ Changes to a truck's booking reach its driver from the change feed every 30 seco
 | `PLANNER_URL` | `http://localhost:8082` | dock-api (`http://api:8082` in Compose) |
 | `PLANNER_AGENT_KEY` | the local development key | must be one of dock-api's `APP_AGENT_KEYS` |
 | `TELEGRAM_TOKEN` | unset | the bot token from @BotFather; unset means Telegram is off |
+| `TELEGRAM_WORKERS` | `8` | Telegram updates handled at once, one driver at a time each: a slow reply for one driver does not hold up the others. `0` handles every update on the polling thread |
 | `ALLOW_PHONE_OVERRIDE` | `false` | `true` enables `/as <phone>` to act as a seeded driver (local testing only) |
 | `ANTHROPIC_API_KEY` | unset | read free text with Claude (10-second timeout, one retry, then rules); unset means rules only. Before any text leaves for the API, phone numbers, vehicle registrations and email addresses are masked, and the message is wrapped as untrusted data |
 | `SETUHAUL_LLM_MODEL` | `claude-sonnet-5-5` | the model for message reading |

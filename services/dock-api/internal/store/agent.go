@@ -60,6 +60,11 @@ type AgentShipment struct {
 	// ReportGateBy is when the driver should be at the gate for the booking (its start minus the gate buffer).
 	ReportGateBy *time.Time `json:"reportGateBy,omitempty"`
 	Message      string     `json:"message"`
+	// DockIn is when the truck entered its dock, if it has.
+	DockIn *time.Time `json:"dockIn,omitempty"`
+	// CanReschedule is false once the trip is over or the truck has reached its dock (status IN_DOCK, a dock-in time
+	// or a booking IN_PROGRESS): options, holds and confirms then answer 409 NOT_RESCHEDULABLE.
+	CanReschedule bool `json:"canReschedule"`
 }
 
 var nonDigits = regexp.MustCompile(`\D`)
@@ -112,13 +117,15 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 		EtaSource           *string
 		EtaConfidence       *string
 		GateIn              *time.Time
+		DockIn              *time.Time
 	}
 	if err := db.Raw(`
 		SELECT s.shipment_id, s.order_reference, v.registration_number AS vehicle_registration,
 		       s.destination_facility_id AS facility_id, f.facility_name, s.required_dock_type,
 		       setuhaul_now() AS as_of, d.driver_name, d.phone AS driver_phone, s.priority_code, s.origin_city,
 		       s.current_status AS status, e.eta_ts AS eta, e.source AS eta_source, e.confidence AS eta_confidence,
-		       fc.gate_in_ts AS gate_in
+		       fc.gate_in_ts AS gate_in,
+		       CASE WHEN fc.dock_in_ts <= setuhaul_now() THEN fc.dock_in_ts END AS dock_in
 		FROM shipments s
 		JOIN drivers d ON d.driver_id = s.driver_id
 		JOIN facilities f ON f.facility_id = s.destination_facility_id
@@ -136,7 +143,7 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 		VehicleRegistration: r.VehicleRegistration, FacilityID: r.FacilityID, FacilityName: r.FacilityName,
 		RequiredDockType: r.RequiredDockType, AsOf: r.AsOf, DriverName: r.DriverName, DriverPhone: r.DriverPhone,
 		PriorityCode: r.PriorityCode, OriginCity: r.OriginCity, Status: r.Status, Eta: r.Eta, EtaSource: r.EtaSource,
-		EtaConfidence: r.EtaConfidence, GateIn: r.GateIn}
+		EtaConfidence: r.EtaConfidence, GateIn: r.GateIn, DockIn: r.DockIn}
 	var bookings []AgentBooking
 	if err := db.Raw(`
 		SELECT a.appointment_id, a.slot_id, dk.dock_code, sl.slot_start_ts AS start, sl.slot_end_ts AS "end",
@@ -158,6 +165,8 @@ func (s *Store) AgentShipment(ctx context.Context, shipmentID string) (*AgentShi
 			out.Booking = &b
 		}
 	}
+	out.CanReschedule = r.Status != "IN_DOCK" && r.Status != "COMPLETED" && r.Status != "CANCELLED" &&
+		r.DockIn == nil && (out.Booking == nil || out.Booking.Status != "IN_PROGRESS")
 	if out.Hold != nil {
 		req, err := requestForHold(db, out.Hold.AppointmentID)
 		if err != nil {

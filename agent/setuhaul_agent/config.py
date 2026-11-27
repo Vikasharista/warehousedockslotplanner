@@ -26,6 +26,7 @@ class Settings:
     whatsapp: dict | None
     feed_every_seconds: float
     allow_phone_override: bool
+    telegram_workers: int = 8
 
     @staticmethod
     def from_env() -> "Settings":
@@ -42,4 +43,5 @@ class Settings:
             whatsapp=wa,
             feed_every_seconds=float(os.environ.get("FEED_EVERY_SECONDS", "30")),
             allow_phone_override=os.environ.get("ALLOW_PHONE_OVERRIDE", "false").lower() == "true",
+            telegram_workers=int(os.environ.get("TELEGRAM_WORKERS", "8")),
         )

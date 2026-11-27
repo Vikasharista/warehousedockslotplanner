@@ -9,11 +9,19 @@ Reliability (phase 7, review findings C4 and W10):
     kept and sent again, so the driver still gets an answer;
   * the agent marks a message handled only after answering it (agent.handle), so a retry is answered, not skipped;
   * only private chats are answered: the bot ignores groups and channels.
+
+Concurrency: with workers > 0 (the default in production, TELEGRAM_WORKERS), each driver's updates go to that driver's
+own queue and a pool of workers drains the queues. One driver's messages are still handled one at a time and in order,
+but a slow reply (a Claude read, a planner call) for one driver no longer holds up every other driver, and polling
+carries on while replies are worked out. workers=0 handles every update inline on the polling thread.
 """
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from .base import InboundMessage, OutboundMessage
@@ -55,6 +63,12 @@ def parse_update(update: dict, allow_phone_override: bool = False) -> InboundMes
     return InboundMessage(text=text, **base)
 
 
+def user_key(update: dict) -> str:
+    """Whose update this is: the Telegram user id, so one driver's updates share a queue."""
+    sender = (update.get("callback_query") or update.get("message") or update.get("edited_message") or {}).get("from")
+    return str(sender["id"]) if sender and "id" in sender else f"update-{update.get('update_id')}"
+
+
 def render(out: OutboundMessage, chat_id: str) -> dict:
     payload: dict = {"chat_id": chat_id, "text": out.text[:4096]}
     if out.request_contact:
@@ -87,7 +101,7 @@ class _Pending:
 
 
 class TelegramBot:
-    def __init__(self, api, agent, allow_phone_override: bool = False, poll_timeout: int = 30):
+    def __init__(self, api, agent, allow_phone_override: bool = False, poll_timeout: int = 30, workers: int = 0):
         self.api, self.agent = api, agent
         self.allow_phone_override = allow_phone_override
         self.poll_timeout = poll_timeout
@@ -95,6 +109,10 @@ class TelegramBot:
         self.retry: list[_Pending] = []
         self.outbox: list[tuple[str, OutboundMessage, int]] = []
         self.stopped = False
+        # One lock for the shared lists and queues: workers, the poller and the change feed (deliver) all touch them.
+        self._lock = threading.Lock()
+        self._queues: dict[str, deque[_Pending]] = {}  # a driver's updates waiting for (or being drained by) a worker
+        self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="telegram") if workers > 0 else None
 
     def send(self, chat_id: str, out: OutboundMessage) -> None:
         self.api.call("sendMessage", render(out, chat_id))
@@ -105,7 +123,8 @@ class TelegramBot:
             self.send(chat_id, out)
         except Exception:
             log.exception("sendMessage to %s failed; will retry", chat_id)
-            self.outbox.append((chat_id, out, 1))
+            with self._lock:
+                self.outbox.append((chat_id, out, 1))
 
     def _handle(self, update: dict) -> None:
         if "callback_query" in update:
@@ -120,34 +139,77 @@ class TelegramBot:
             self.deliver(msg.chat_id, out)
 
     def _flush_outbox(self) -> None:
-        pending, self.outbox = self.outbox, []
+        with self._lock:
+            pending, self.outbox = self.outbox, []
         for chat_id, out, attempts in pending:
             try:
                 self.send(chat_id, out)
             except Exception:
                 if attempts + 1 < MAX_ATTEMPTS:
-                    self.outbox.append((chat_id, out, attempts + 1))
+                    with self._lock:
+                        self.outbox.append((chat_id, out, attempts + 1))
                 else:
                     log.error("gave up sending a reply to %s after %d attempts", chat_id, MAX_ATTEMPTS)
 
+    def _process(self, p: _Pending) -> None:
+        """Handles one update; a failure keeps it for the next polls, up to MAX_ATTEMPTS in all."""
+        try:
+            self._handle(p.update)
+        except Exception:
+            p.attempts += 1
+            log.exception("update %s failed (attempt %d)", p.update.get("update_id"), p.attempts)
+            if p.attempts < MAX_ATTEMPTS:
+                with self._lock:
+                    self.retry.append(p)
+
+    def _dispatch(self, p: _Pending) -> None:
+        """Inline without workers; otherwise onto the driver's queue, starting a worker if none is draining it."""
+        if self._pool is None:
+            self._process(p)
+            return
+        key = user_key(p.update)
+        with self._lock:
+            queue = self._queues.get(key)
+            if queue is not None:  # a worker is already on this driver: it takes this update next, in order
+                queue.append(p)
+                return
+            self._queues[key] = deque([p])
+        self._pool.submit(self._drain, key)
+
+    def _drain(self, key: str) -> None:
+        while True:
+            with self._lock:
+                queue = self._queues[key]
+                if not queue:
+                    del self._queues[key]
+                    return
+                p = queue.popleft()
+            self._process(p)
+
+    def wait_idle(self, timeout: float = 10.0) -> bool:
+        """True once no driver's updates are waiting or being handled (for tests and a clean stop)."""
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            with self._lock:
+                if not self._queues:
+                    return True
+            time.sleep(0.005)
+        return False
+
     def poll_once(self) -> None:
-        """One round: resend what failed, fetch new updates, handle each (in order) on its own."""
+        """One round: resend what failed, fetch new updates, then hand each to its driver's queue (in order), or
+        handle it inline when there are no workers."""
         self._flush_outbox()
         res = self.api.call("getUpdates", {"offset": self.offset, "timeout": self.poll_timeout,
                                            "allowed_updates": ["message", "edited_message", "callback_query"]},
                             timeout=self.poll_timeout + 10)
-        work, self.retry = self.retry, []
+        with self._lock:
+            work, self.retry = self.retry, []
         for u in res.get("result", []):
             self.offset = max(self.offset, u["update_id"] + 1)
             work.append(_Pending(u))
         for p in work:
-            try:
-                self._handle(p.update)
-            except Exception:
-                p.attempts += 1
-                log.exception("update %s failed (attempt %d)", p.update.get("update_id"), p.attempts)
-                if p.attempts < MAX_ATTEMPTS:
-                    self.retry.append(p)
+            self._dispatch(p)
 
     def run(self) -> None:
         log.info("Telegram polling started")

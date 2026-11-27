@@ -36,6 +36,7 @@ MENU = ("I can help you:\n- report a delay or breakdown\n- get a new unloading s
         "Just type what happened.")
 SLOT_BUTTON = "slot:"
 DONE_STATUSES = ("COMPLETED", "CANCELLED")
+NOT_RESCHEDULABLE = "NOT_RESCHEDULABLE"  # the planner's 409 once the truck has reached its dock
 
 
 def normalize_phone(raw: str | None) -> str | None:
@@ -273,6 +274,9 @@ class Agent:
 
     # ---------------------------------------------------------------- IDLE
     def _idle(self, s: Session, trip: dict, ex: Extraction) -> list[OutboundMessage]:
+        if ex.intent in ("REPORT_DELAY", "EARLY_ARRIVAL", "ASK_SLOT_OPTIONS") and trip.get("canReschedule") is False:
+            self._thread(s, intent=ex.intent)
+            return self._at_dock(s, trip)
         if ex.intent in ("REPORT_DELAY", "EARLY_ARRIVAL"):
             self._new_draft(s, trip, ex.exception_type or ("EARLY_ARRIVAL" if ex.intent == "EARLY_ARRIVAL" else "DELAY"))
             self._thread(s, intent=ex.intent)
@@ -504,9 +508,25 @@ class Agent:
             return False
         return True
 
+    def _at_dock(self, s: Session, trip: dict) -> list[OutboundMessage]:
+        """The truck has reached its dock: its slot can no longer change by chat, so the slot flow ends here."""
+        self._release(s)
+        for key in ("draft", "options", "last_question"):
+            s.ctx.pop(key, None)
+        self._exception_status(s, "RESOLVED")
+        s.state = "IDLE"
+        return [OutboundMessage("You are already at the dock, so your slot can no longer change here. "
+                                + trip["message"])]
+
     def _offer_options(self, s: Session, trip: dict, intro: str = "") -> list[OutboundMessage]:
         d = s.ctx.get("draft") or {}
-        found = [o for o in self.planner.options(s.shipment_id, self.policy.options_searched) if self._fits(o, d)]
+        try:
+            listed = self.planner.options(s.shipment_id, self.policy.options_searched)
+        except PlannerError as e:
+            if e.code != NOT_RESCHEDULABLE:
+                raise
+            return self._at_dock(s, trip)
+        found = [o for o in listed if self._fits(o, d)]
         found = found[: self.policy.max_options]
         if not found:
             limits = []
@@ -587,6 +607,8 @@ class Agent:
         try:
             h = self.planner.hold(s.shipment_id, opt["slot_id"])
         except PlannerError as e:
+            if e.code == NOT_RESCHEDULABLE:
+                return self._at_dock(s, trip)
             kept = self._rehold(s, previous) if previous else None
             if e.code == "RESCHEDULE_LIMIT":
                 return self._escalate(s, trip, "RESCHEDULE_LIMIT", "NORMAL", e.message,
@@ -633,6 +655,9 @@ class Agent:
                 h = self.planner.confirm(hold["hold_id"])
             except PlannerError as e:
                 s.ctx.pop("hold", None)
+                if e.code == NOT_RESCHEDULABLE:
+                    self._release_quietly(hold)
+                    return self._at_dock(s, trip)
                 if e.code == "RESCHEDULE_LIMIT":
                     self._release_quietly(hold)
                     return self._escalate(s, trip, "RESCHEDULE_LIMIT", "NORMAL", e.message,

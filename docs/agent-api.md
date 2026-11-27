@@ -35,10 +35,10 @@ curl -H 'X-Agent-Key: local-agent-key-for-development-only' \
 | --- | --- |
 | `GET /api/agent/drivers/{phone}/shipments` | The driver's open trips (matched on the phone's last 10 digits), each as a shipment status below; 404 if none |
 | `GET /api/agent/shipments/{id}` | One shipment status |
-| `GET /api/agent/shipments/{id}/options?limit=` | Free slots the truck could hold now (same rules as the solver) |
+| `GET /api/agent/shipments/{id}/options?limit=` | Free slots the truck could hold now (same rules as the solver); 409 `NOT_RESCHEDULABLE` once the truck has reached its dock |
 | `POST /api/agent/shipments/{id}/eta` `{"eta", "reason"?, "confidence"?, "note"?}` | Records a driver-declared ETA and returns the updated status |
-| `POST /api/agent/holds` `{"shipmentId", "slotId"}` | Holds a slot for 15 minutes; 201 with the hold, 409 `SLOT_UNAVAILABLE`, `HOLD_CONFLICT` or `RESCHEDULE_LIMIT` |
-| `POST /api/agent/holds/{id}/confirm` | 200 `outcome: CONFIRMED`: the hold is the truck's booking. 202 `outcome: AWAITING_APPROVAL` for a HIGH or CRITICAL truck changing its booking (below). 409 `HOLD_EXPIRED` after 15 minutes |
+| `POST /api/agent/holds` `{"shipmentId", "slotId"}` | Holds a slot for 15 minutes; 201 with the hold, 409 `SLOT_UNAVAILABLE`, `HOLD_CONFLICT`, `RESCHEDULE_LIMIT` or `NOT_RESCHEDULABLE` |
+| `POST /api/agent/holds/{id}/confirm` | 200 `outcome: CONFIRMED`: the hold is the truck's booking. 202 `outcome: AWAITING_APPROVAL` for a HIGH or CRITICAL truck changing its booking (below). 409 `HOLD_EXPIRED` after 15 minutes, `NOT_RESCHEDULABLE` if the truck reached its dock meanwhile |
 | `POST /api/agent/holds/{id}/release` | Lets the hold go (and withdraws a change waiting for approval) |
 | `GET /api/agent/changes?after={cursor}&limit=` | Changes after the cursor, oldest first: `{"changes": [...], "next": <cursor>, "last": <newest id>}` |
 | `GET /api/agent/facilities/{id}` | Hours, the last start time, the gate buffer and the gate contacts |
@@ -47,7 +47,7 @@ curl -H 'X-Agent-Key: local-agent-key-for-development-only' \
 | `POST /api/agent/threads/{id}/messages` `{"senderType", "text", "externalMessageId"?, "parsedIntent"?, "requiresHumanReview"?}` | Logs a `DRIVER`, `AGENT` or `SYSTEM` message: 201, or 200 with `"duplicate": true` when that external id was already logged on the thread (a retried webhook) |
 | `POST /api/agent/exceptions` `{"threadId", "type", "description", "delayMin"?, "declaredEta"?, "earliestAcceptable"?, "latestAcceptable"?, "status"?}` | Records the thread's exception (201) or updates its live one (200). The planner sets the severity and marks a second report of the same problem the same day `DUPLICATE` |
 | `PATCH /api/agent/exceptions/{id}` `{"status"}` | `OPEN`, `NEEDS_INFORMATION`, `SLOT_OPTIONS_SHARED`, `WAITING_CONFIRMATION`, `RESOLVED`, `ESCALATED`, `CANCELLED` |
-| `POST /api/agent/cases` `{"reasonCode", "urgency", "summary", "channel", "shipmentId"?, "threadId"?, "exceptionId"?, "channelUserId"?, "phone"?}` | Hands the conversation to a coordinator (the **Driver cases** screen); the thread and exception become `ESCALATED`. An unknown number has no shipment: give the channel, its user id and the phone |
+| `POST /api/agent/cases` `{"reasonCode", "urgency", "summary", "channel", "shipmentId"?, "threadId"?, "exceptionId"?, "channelUserId"?, "phone"?}` | Hands the conversation to a coordinator (the **Driver cases** screen); the thread and exception become `ESCALATED`. 201 with a new case, or 200 with `"reused": true` when the thread already has an open case: the summary is appended to it and its urgency and reason are raised if the new hand-over is more urgent (never lowered). An unknown number has no shipment: give the channel, its user id and the phone |
 | `GET /api/agent/cases/{id}` | The case's status (`OPEN`, `ASSIGNED`, `RESOLVED`) |
 
 Times are RFC 3339. Errors are `{"code", "error"}`: 400 bad input, 401 no or wrong key, 404 unknown, 409 conflict.
@@ -77,6 +77,9 @@ Times are RFC 3339. Errors are `{"code", "error"}`: 400 bad input, 401 no or wro
   or the effective ETA plus the 30-minute gate buffer, plus 15 minutes when the ETA's confidence is LOW). `false` means
   the planner moves the booking on its next run. `reportGateBy` is the booking's start minus the gate buffer.
 - `approvalRequest` is a slot change waiting for a coordinator, if any (below).
+- `canReschedule` is `false` once the trip is over or the truck has reached its dock (status `IN_DOCK`, a dock-in time,
+  shown as `dockIn`, or a booking `IN_PROGRESS`). Options, holds and confirms then answer 409 `NOT_RESCHEDULABLE`. A truck
+  at the gate or waiting in the yard can still move, for example when its dock breaks down.
 - Also: `orderReference`, `vehicleRegistration`, `facilityId`, `facilityName`, `requiredDockType`.
 
 ### Delay reports and GPS

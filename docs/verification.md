@@ -99,6 +99,18 @@ snapshot (`scripts/agent-suite.sh`); dock-api store tests and the solver's ITs n
 | Access | An agent key opens the agent's routes only; coordinators act with a session, recorded by email | dock-api `TestPhase7AccessMatrix`, `TestCoordinatorRoutes` | pass |
 | Chat reschedule limit | A third chat change is refused and handed to a coordinator | dock-api `TestLowAndNormalChangesConfirmAtOnceUpToTheChatLimit`; agent `test_the_chat_limit_hands_the_third_change_to_a_coordinator` | pass |
 
+## Agent fixes: trip stage, one case per conversation, Telegram workers
+
+Run on a freshly seeded snapshot in Postgres 16: dock-api `go test ./...` (all packages pass; 29 store tests, none
+skipped) and the whole agent suite against a running planner, solver and GPS service (36 passed: 23 unit, 13 live,
+none skipped).
+
+| Finding | What must hold | Evidence | Result |
+| --- | --- | --- | --- |
+| A truck in its dock was offered slots, then refused the hold (`HOLD_CONFLICT`) and offered slots again | Options, hold and confirm answer 409 `NOT_RESCHEDULABLE` once the truck has reached its dock (status IN_DOCK, a dock-in time or a booking IN_PROGRESS); the trip carries `canReschedule`; the agent answers with the trip status instead of the slot flow. A truck at the gate or in the yard can still move | dock-api `TestATruckInTheDockCannotReschedule`, `TestErrorsMapToStatusesAndHideInternals` (in dock); agent `test_a_truck_in_its_dock_gets_its_status_not_slot_options` (unit and live), `test_the_planners_refusal_ends_the_slot_flow...` | pass |
+| Every safety message opened a new case, even while one was open | A thread keeps one open case: a later hand-over is appended to it and raises its urgency and reason, never lowers them, and puts the thread back to `ESCALATED`; a resolved case lets the next hand-over open a new one | dock-api `TestAThreadKeepsOneOpenCase`; agent `test_a_safety_message_on_an_open_case_raises_that_case` (live) | pass |
+| One slow Telegram reply held up every driver | Each driver's updates go to their own queue, drained by a pool of workers (`TELEGRAM_WORKERS`, 8): other drivers are answered meanwhile, one driver's messages stay in order, a failed update is retried | agent `test_one_slow_driver_does_not_hold_up_the_others`, `test_one_drivers_messages_stay_in_order`, `test_a_failed_update_is_retried_with_workers_too` | pass |
+
 ## Phase 8: the submission (the brief's boundaries, evals, measures)
 
 Rows added for the FDE brief's hand-in. They come from the brief's boundaries and measures, and from the course's eval

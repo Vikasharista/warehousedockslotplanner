@@ -70,6 +70,13 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   from its request. Outcomes and coordinator replies reach the driver on the change feed (`kind` APPROVAL, REPLY).
 - A truck may change its slot by chat at most `max_chat_reschedules` (2) times; dock-api enforces it on hold and
   confirm. Coordinators work approvals, cases and open exceptions on the Driver cases screen.
+- A truck that has reached its dock (status IN_DOCK, a dock-in time or a booking IN_PROGRESS) cannot change its slot by
+  chat: options, hold and confirm answer 409 `NOT_RESCHEDULABLE`, and the trip status carries `canReschedule`. A truck at
+  the gate or in the yard can still move. Not-started trips (PLANNED, ASSIGNED) can report delays and reschedule.
+- A chat thread keeps one open coordinator case: a later hand-over is appended to it and may raise its urgency and
+  reason, never lower them. Once the case is resolved, the next hand-over opens a new one.
+- The Telegram adapter gives each driver a queue drained by a worker pool (`TELEGRAM_WORKERS`, 8): one driver's messages
+  stay in order, other drivers are not held up.
 - The agent never answers money questions (penalties, detention or waiting charges, payments, claims): they become a
   `COMMERCIAL_QUERY` case. A driver's "I am here" that GPS puts 60+ minutes away (`conflict_min`) keeps the GPS time and
   opens a `DATA_CONFLICT` case while the conversation goes on. Phone numbers, vehicle registrations and emails are
