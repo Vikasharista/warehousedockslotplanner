@@ -1,4 +1,4 @@
-"""Offline evals, run in CI on every pull request (week 12 and week 14: evals that run on every change).
+"""Offline evals, for every change (week 12 and week 14): python -m pytest agent/tests evals, from the repository root.
 
 - The golden dataset: every driver message in the snapshot, the brief's own phrases, Hinglish, money, safety and
   hostile messages, each with the reading the agent must produce. The gate is every case.

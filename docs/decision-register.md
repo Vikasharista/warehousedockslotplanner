@@ -76,7 +76,7 @@ any use, so we ask for it, but only once and only when options will follow.
 - [S2b](scenario-run/README.md#s2b-low-truck-wins-the-race): THR011, an options-only request.
 
 The [golden message set](../evals/golden_messages.jsonl) pins the fields read from all 11 snapshot driver messages and
-the brief's phrases, and runs in CI.
+the brief's phrases, and runs with `python -m pytest agent/tests evals`.
 
 ### 2. How does a conversation link to the right driver, shipment and appointment?
 

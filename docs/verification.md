@@ -130,4 +130,4 @@ method: start from real failures, write the ideal path, and count where a trace 
 | Ten drivers, one slot | Ten simultaneous holds on one free slot: exactly one wins, every round | `evals/ten_drivers.py` ([integrity-proof.md](integrity-proof.md)): 20 rounds, 200 requests, 20 winners, 0 double bookings; race harness phase 8: all 8 invariants | pass |
 | Scenario run | The brief's 7 items, ending in one escalation; every conversation acceptable; invariants I1-I5 after the run | [scenario-run/README.md](scenario-run/README.md) | pass |
 | Data audit A11-A14 | Two open trips per driver, repeated messages, a failed notice, driver-only ETAs | `jobs/tests/test_audit.py` | pass |
-| CI | The agent's unit and guardrail tests, the golden set and the trace checks run on every pull request | [.github/workflows/evals.yml](../.github/workflows/evals.yml) | added |
+| Offline eval suite | The agent's unit and guardrail tests, the golden set and the trace checks run without the stack | `python -m pytest agent/tests evals` (the live tests skip without a planner) | pass |

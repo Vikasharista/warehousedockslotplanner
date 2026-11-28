@@ -84,7 +84,7 @@ you choose, and a nightly reset to the start of the demo day.
 | [`services/`](services/) | [`dock-api`](services/dock-api/): the plan view's API and driver holds (hold, confirm, release). [`core-lib`](services/core-lib/): the Go services' shared library | Go 1.24+ |
 | [`web/`](web/) | The plan view (dock sequence, exceptions, change log, runs, driver holds) and the Shipments, Capacity, Driver cases and Driver chat screens | React, TypeScript, Vite |
 | [`agent/`](agent/) | The driver chat agent: Telegram (WhatsApp optional), talking to the planner only through its agent API | Python 3.12 |
-| [`evals/`](evals/) | The scenario run, the deterministic trace checks, the golden message set; run in CI ([`.github/workflows/evals.yml`](.github/workflows/evals.yml)) | Python 3.12 |
+| [`evals/`](evals/) | The scenario run, the deterministic trace checks, the golden message set; run offline with `python -m pytest agent/tests evals` (Python 3.12) | Python 3.12 |
 | [`docs/`](docs/) | The deliverables above, data audit report, [driver agent API](docs/agent-api.md) and its [Telegram bot guide](docs/telegram-agent.md), [deployment](docs/deploy.md), [verification matrix](docs/verification.md), [phase 6 results](docs/results/phase6/) ([readout](https://claude.ai/artifact/5Hawn7Pmg39pbhSTFByMFs)) | Markdown |
 | [`scripts/`](scripts/) | `scenario-run.sh`: the scenario run (deliverable 4). `integrity-proof.sh`: ten drivers on one slot, then the race harness (deliverable 5). `agent-suite.sh`: every agent test on a fresh stack. `break-and-defend.sh`: rebuilds the baseline comparison and scale tables | Bash |
 
@@ -117,6 +117,6 @@ Every version is pinned in the build files named below. Docker builds use exactl
    screen ([plan](https://claude.ai/artifact/CEhBRBoLMYFSsm8Yce24ny))
 8. The submission: Problem Definition Sheet, decision register, scripted scenario run with evals and the brief's
    measures, guardrails (money, contradictory data, PII gate, hostile messages), four more audit findings, the one-page
-   client readout, CI
+   client readout
 
 Each phase lands as a branch and a pull request.

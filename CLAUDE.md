@@ -82,4 +82,4 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   opens a `DATA_CONFLICT` case while the conversation goes on. Phone numbers, vehicle registrations and emails are
   masked before any text reaches a model, and the message is passed as untrusted data (phase 8).
 - The submission's evidence is generated, not hand-written: `scripts/scenario-run.sh` writes `docs/scenario-run/`
-  (traces scored by `evals/checks.py`), and `evals/test_evals.py` (golden messages, trace checks) runs in CI.
+  (traces scored by `evals/checks.py`), and `evals/test_evals.py` (golden messages, trace checks) runs with `python -m pytest agent/tests evals`.
