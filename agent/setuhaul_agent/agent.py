@@ -254,6 +254,10 @@ class Agent:
         if ex.intent == "HUMAN_REQUEST":
             return self._escalate(s, trip, "DRIVER_REQUESTED_HUMAN", "NORMAL", f"Driver asked for a person: {text}",
                                   "OK, a coordinator will message you here shortly.")
+        if ex.intent == "COMMERCIAL":  # money is a person's decision, never the chat's
+            return self._escalate(s, trip, "COMMERCIAL_QUERY", "NORMAL", f"Money question from driver: {text}",
+                                  "Penalties, detention charges and payments are decided by a person, not by this "
+                                  "chat. I have passed your message to a coordinator, who will reply here.")
         handler = {"IDLE": self._idle, "AWAITING_DELAY_DETAILS": self._delay_details,
                    "AWAITING_LATEST_FINISH": self._latest_finish, "AWAITING_OPTION_PICK": self._option_pick,
                    "AWAITING_HOLD_CONFIRM": self._hold_confirm}.get(s.state, self._idle)
@@ -435,8 +439,15 @@ class Agent:
             s.ctx.pop("draft", None)
             stays = (f" Until then your slot stays dock {booking['dockCode']} at {hhmm(booking['start'])}."
                      if booking else "")
+            # Contradictory data is a person's call: the driver says they are here (or nearly), the GPS disagrees.
+            conflict = ""
+            if trip.get("etaSource") == "GPS" and plan_eta - eta >= timedelta(minutes=self.policy.conflict_min):
+                ref = self._flag(s, "DATA_CONFLICT",
+                                 f"Driver says they can be at the gate at {hhmm(eta)}; GPS puts the truck there at "
+                                 f"{hhmm(plan_eta)}. The plan uses the GPS time until someone checks.")
+                conflict = f" A coordinator will check the difference. Ref {ref}."
             return [OutboundMessage(f"Noted, you can be here at {hhmm(eta)}.{gps_note} If an earlier slot is free, the "
-                                    f"planner moves you to it and I will tell you here.{stays}")]
+                                    f"planner moves you to it and I will tell you here.{stays}{conflict}")]
 
         # 4) Does the booking still work? The planner's rule decides (W2), not a grace period of the agent's.
         wants_change = bool(d.get("requested_after") or d.get("slot_request_only"))
@@ -566,7 +577,14 @@ class Agent:
     def _option_pick(self, s: Session, trip: dict, ex: Extraction) -> list[OutboundMessage]:
         opts = s.ctx.get("options", [])
         if ex.intent == "CHOOSE_OPTION" and ex.option_number:
-            return self._hold(s, trip, opts[ex.option_number - 1])
+            opt = opts[ex.option_number - 1]
+            if ex.latest_finish:  # "the second one works, but I need to leave by 9": check it before holding
+                self._merge(s, trip, ex)
+                limit = (s.ctx.get("draft") or {}).get("latest_finish")
+                if limit and parse(opt["slot_end"]) > parse(limit):
+                    return self._offer_options(s, trip, intro=f"Option {ex.option_number} ends at "
+                                               f"{hhmm(opt['slot_end'])}, after you need to leave ({hhmm(limit)}). ")
+            return self._hold(s, trip, opt)
         if ex.intent == "DENY":
             return self._escalate(s, trip, "NO_ACCEPTABLE_OPTION", "NORMAL",
                                   "Driver turned down every offered slot: " + ", ".join(describe(o) for o in opts),
@@ -714,6 +732,13 @@ class Agent:
                                f"{gate['phone'] if gate else 'your dispatcher'}.")
 
     # ---------------------------------------------------------------- hand-over
+    def _flag(self, s: Session, reason: str, summary: str) -> str:
+        """A case for a coordinator to check, while the conversation goes on (unlike _escalate)."""
+        case = self.planner.open_case(reason=reason, urgency="NORMAL", channel=s.channel, channel_user_id=s.chat_id,
+                                      phone=s.phone, shipment_id=s.shipment_id, thread_id=s.thread_id,
+                                      exception_id=s.ctx.get("exception_id"), summary=summary)
+        return case["caseId"]
+
     def _escalate(self, s: Session, trip: dict, reason: str, urgency: str, summary: str,
                   reply: str) -> list[OutboundMessage]:
         self._release(s)

@@ -1,0 +1,4 @@
+# The scenario run and the evals (Python 3.12). Pinned: these exact versions produced docs/scenario-run/.
+httpx==0.28.1
+psycopg[binary]==3.3.9
+pytest==8.4.2

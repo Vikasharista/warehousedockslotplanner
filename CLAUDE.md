@@ -77,3 +77,9 @@ https://claude.ai/artifact/7F818ubM84vjsf6qZ4DowC — read it before changing so
   reason, never lower them. Once the case is resolved, the next hand-over opens a new one.
 - The Telegram adapter gives each driver a queue drained by a worker pool (`TELEGRAM_WORKERS`, 8): one driver's messages
   stay in order, other drivers are not held up.
+- The agent never answers money questions (penalties, detention or waiting charges, payments, claims): they become a
+  `COMMERCIAL_QUERY` case. A driver's "I am here" that GPS puts 60+ minutes away (`conflict_min`) keeps the GPS time and
+  opens a `DATA_CONFLICT` case while the conversation goes on. Phone numbers, vehicle registrations and emails are
+  masked before any text reaches a model, and the message is passed as untrusted data (phase 8).
+- The submission's evidence is generated, not hand-written: `scripts/scenario-run.sh` writes `docs/scenario-run/`
+  (traces scored by `evals/checks.py`), and `evals/test_evals.py` (golden messages, trace checks) runs with `python -m pytest agent/tests evals`.
